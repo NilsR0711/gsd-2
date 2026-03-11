@@ -76,8 +76,13 @@ export class DiscordAdapter implements ChannelAdapter {
           const humanUsers = users.filter((u: { id: string }) => u.id !== this.botUserId);
           if (humanUsers.length > 0) reactions.push({ emoji, count: humanUsers.length });
         }
-      } catch {
-        // ignore missing reaction
+      } catch (err) {
+        const msg = String((err as Error).message ?? "");
+        // 404 = no reactions for this emoji — expected, continue
+        if (msg.includes("HTTP 404")) continue;
+        // 401/403 = auth failure — surface to caller so it can fail the poll
+        if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) throw err;
+        // Other errors (rate limit, network) — skip this emoji, best-effort
       }
     }
 
