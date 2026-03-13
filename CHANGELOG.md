@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-03-12
+
+### Added
+- Proactive secret management — planning phase forecasts required API keys into a manifest; auto-mode collects pending secrets before dispatching the first slice
+- `--continue` / `-c` CLI flag to resume the most recent session
+
+### Fixed
+- Doctor post-hook no longer preempts `complete-slice` dispatch
+- `main_branch` preference restored; `runPreMergeCheck` implemented for merge safety
+- Recovery/retry prompt injection capped to prevent V8 OOM on large sessions
+- `.gsd/` excluded from pre-switch auto-commits to prevent squash merge conflicts
+
 ## [2.5.1] - 2026-03-12
 
 ### Added
@@ -243,7 +255,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/gsd-build/gsd-2/compare/v2.5.1...v2.6.0
 [2.5.1]: https://github.com/gsd-build/gsd-2/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/gsd-build/gsd-2/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/gsd-build/gsd-2/compare/v2.3.11...v2.4.0
