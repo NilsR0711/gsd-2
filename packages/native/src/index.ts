@@ -2,8 +2,10 @@
  * @gsd/native — High-performance Rust modules exposed via N-API.
  *
  * Modules:
+ * - ast: AST-aware structural search and rewrite
  * - clipboard: native clipboard access (text + image)
  * - grep: ripgrep-backed regex search (content + filesystem)
+ * - image: decode, encode, and resize images
  */
 
 export {
@@ -34,3 +36,6 @@ export type {
   AstReplaceOptions,
   AstReplaceResult,
 } from "./ast/index.js";
+
+export { parseImage, ImageFormat, SamplingFilter } from "./image/index.js";
+export type { NativeImageHandle } from "./image/index.js";

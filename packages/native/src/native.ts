@@ -48,4 +48,5 @@ export const native = loadNative() as {
   readImageFromClipboard: () => Promise<unknown>;
   astGrep: (options: unknown) => unknown;
   astEdit: (options: unknown) => unknown;
+  NativeImage: unknown;
 };

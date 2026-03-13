@@ -14,7 +14,12 @@ crate-type = ["cdylib"]
 gsd-ast = { path = "../ast" }
 gsd-grep = { path = "../grep" }
 arboard = "3"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "gif",
+  "webp",
+] }
 napi = { version = "2", features = ["napi8"] }
 napi-derive = "2"
 
