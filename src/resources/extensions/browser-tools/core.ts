@@ -73,7 +73,7 @@ export interface PageRegistry {
 
 export interface PageEntry {
 	id: number;
-	page: unknown;
+	page: any;
 	title: string;
 	url: string;
 	opener: number | null;
@@ -960,9 +960,9 @@ function uniqueStrings(values: (string | undefined)[]): string[] {
   return [...new Set(values.filter(Boolean))] as string[];
 }
 
-export function formatTimelineEntries(entries: ActionEntry[] = [], options: { retained?: number; totalRecorded?: number } = {}): FormattedTimeline {
-  const retained = options.retained ?? entries.length;
-  const totalRecorded = options.totalRecorded ?? retained;
+export function formatTimelineEntries(entries: ActionEntry[] = [], options: Record<string, unknown> = {}): FormattedTimeline {
+  const retained = (options.retained as number) ?? entries.length;
+  const totalRecorded = (options.totalRecorded as number) ?? retained;
   const bounded = totalRecorded > retained;
 
   if (!entries.length) {
@@ -1019,14 +1019,7 @@ export function formatTimelineEntries(entries: ActionEntry[] = [], options: { re
 // Failure Hypothesis
 // ---------------------------------------------------------------------------
 
-interface SessionForHypothesis {
-  actionTimeline?: { entries: ActionEntry[] };
-  consoleEntries?: Array<{ type?: string; text?: string; message?: string }>;
-  networkEntries?: Array<{ url?: string; status?: number; failed?: boolean }>;
-  dialogEntries?: Array<{ type?: string; message?: string }>;
-}
-
-export function buildFailureHypothesis(session: SessionForHypothesis = {}): FailureHypothesis {
+export function buildFailureHypothesis(session: Record<string, any> = {}): FailureHypothesis {
   const timelineEntries = session.actionTimeline?.entries ?? [];
   const consoleEntries = session.consoleEntries ?? [];
   const networkEntries = session.networkEntries ?? [];
@@ -1103,36 +1096,30 @@ export function buildFailureHypothesis(session: SessionForHypothesis = {}): Fail
 // Session Summary
 // ---------------------------------------------------------------------------
 
-interface SessionForSummary extends SessionForHypothesis {
-  retainedActionCount?: number;
-  totalActionCount?: number;
-  pages?: Array<{ id?: number; title?: string; url?: string; isActive?: boolean }>;
-}
-
-export function summarizeBrowserSession(session: SessionForSummary = {}): SessionSummary {
+export function summarizeBrowserSession(session: Record<string, any> = {}): SessionSummary {
   const actionTimeline = session.actionTimeline ?? { limit: 0, entries: [] as ActionEntry[] };
-  const actionEntries = actionTimeline.entries ?? [];
-  const retainedActionCount = session.retainedActionCount ?? actionEntries.length;
-  const totalActionCount = session.totalActionCount ?? retainedActionCount;
-  const pages = session.pages ?? [];
-  const consoleEntries = session.consoleEntries ?? [];
-  const networkEntries = session.networkEntries ?? [];
-  const dialogEntries = session.dialogEntries ?? [];
+  const actionEntries: ActionEntry[] = actionTimeline.entries ?? [];
+  const retainedActionCount: number = session.retainedActionCount ?? actionEntries.length;
+  const totalActionCount: number = session.totalActionCount ?? retainedActionCount;
+  const pages: Array<Record<string, any>> = session.pages ?? [];
+  const consoleEntries: Array<Record<string, any>> = session.consoleEntries ?? [];
+  const networkEntries: Array<Record<string, any>> = session.networkEntries ?? [];
+  const dialogEntries: Array<Record<string, any>> = session.dialogEntries ?? [];
 
   const actionStatusCounts = actionEntries.reduce(
-    (acc, entry) => {
+    (acc: Record<string, number>, entry: ActionEntry) => {
       const status = summarizeActionStatus(entry.status);
       acc[status] = (acc[status] ?? 0) + 1;
       return acc;
     },
-    { success: 0, error: 0, running: 0 } as Record<string, number>,
+    { success: 0, error: 0, running: 0 },
   );
 
-  const waitEntries = actionEntries.filter((entry) => entry.tool === "browser_wait_for");
-  const assertEntries = actionEntries.filter((entry) => entry.tool === "browser_assert");
-  const consoleErrors = consoleEntries.filter((entry) => entry.type === "error" || entry.type === "pageerror");
-  const failedRequests = networkEntries.filter((entry) => entry.failed || (typeof entry.status === "number" && entry.status >= 400));
-  const activePage = pages.find((page) => page.isActive) ?? pages[0] ?? null;
+  const waitEntries = actionEntries.filter((entry: ActionEntry) => entry.tool === "browser_wait_for");
+  const assertEntries = actionEntries.filter((entry: ActionEntry) => entry.tool === "browser_assert");
+  const consoleErrors = consoleEntries.filter((entry: Record<string, any>) => entry.type === "error" || entry.type === "pageerror");
+  const failedRequests = networkEntries.filter((entry: Record<string, any>) => entry.failed || (typeof entry.status === "number" && entry.status >= 400));
+  const activePage = pages.find((page: Record<string, any>) => page.isActive) ?? pages[0] ?? null;
 
   const caveats: string[] = [];
   if (totalActionCount > retainedActionCount) {
