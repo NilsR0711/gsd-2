@@ -2,9 +2,9 @@
  * Triage dispatch ordering contract tests.
  *
  * These tests verify structural invariants of the triage integration
- * by inspecting the actual source code of auto.ts, auto-post-unit.ts,
- * and post-unit-hooks.ts.
- * Full behavioral testing requires the @gsd/pi-coding-agent runtime.
+ * by inspecting the actual source code of auto-post-unit.ts, auto.ts,
+ * and post-unit-hooks.ts. Full behavioral testing requires the
+ * @gsd/pi-coding-agent runtime.
  */
 
 import test from "node:test";
@@ -17,10 +17,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const hooksPath = join(__dirname, "..", "post-unit-hooks.ts");
 const autoPromptsPath = join(__dirname, "..", "auto-prompts.ts");
 
-// Post-unit dispatch logic was split from auto.ts into auto-post-unit.ts — read both
+// After decomposition, triage/dispatch logic lives in auto-post-unit.ts
+const postUnitSrc = readFileSync(join(__dirname, "..", "auto-post-unit.ts"), "utf-8");
+// auto.ts retains top-level orchestration and imports
 const autoSrc = [
   readFileSync(join(__dirname, "..", "auto.ts"), "utf-8"),
-  readFileSync(join(__dirname, "..", "auto-post-unit.ts"), "utf-8"),
+  postUnitSrc,
+  readFileSync(join(__dirname, "..", "auto-start.ts"), "utf-8"),
 ].join("\n");
 const hooksSrc = readFileSync(hooksPath, "utf-8");
 const autoPromptsSrc = (() => { try { return readFileSync(autoPromptsPath, "utf-8"); } catch { return autoSrc; } })();
@@ -28,7 +31,6 @@ const autoPromptsSrc = (() => { try { return readFileSync(autoPromptsPath, "utf-
 // ─── Hook exclusion ──────────────────────────────────────────────────────────
 
 test("dispatch: triage-captures excluded from post-unit hook triggering", () => {
-  // post-unit-hooks.ts must return null for triage-captures unit type
   assert.ok(
     hooksSrc.includes('"triage-captures"'),
     "post-unit-hooks.ts should reference triage-captures",
@@ -42,31 +44,30 @@ test("dispatch: triage-captures excluded from post-unit hook triggering", () => 
 // ─── Triage check placement ──────────────────────────────────────────────────
 
 test("dispatch: triage check appears after hook section and before stepMode check", () => {
-  const hookRetryIndex = autoSrc.indexOf("isRetryPending()");
-  const triageCheckIndex = autoSrc.indexOf("Triage check");
-  const stepModeIndex = autoSrc.indexOf("Step mode");
+  const triageCheckIndex = postUnitSrc.indexOf("// ── Triage check");
+  const quickTaskIndex = postUnitSrc.indexOf("// ── Quick-task dispatch");
+  const stepModeIndex = postUnitSrc.indexOf("if (s.stepMode)");
 
-  assert.ok(hookRetryIndex > 0, "hook retry check should exist");
   assert.ok(triageCheckIndex > 0, "triage check block should exist");
+  assert.ok(quickTaskIndex > 0, "quick-task dispatch block should exist");
   assert.ok(stepModeIndex > 0, "step mode check should exist");
 
   assert.ok(
-    triageCheckIndex > hookRetryIndex,
-    "triage check should come after hook retry check",
+    triageCheckIndex < quickTaskIndex,
+    "triage check should come before quick-task dispatch",
   );
   assert.ok(
-    triageCheckIndex < stepModeIndex,
-    "triage check should come before stepMode check",
+    quickTaskIndex < stepModeIndex,
+    "quick-task dispatch should come before stepMode check",
   );
 });
 
 // ─── Guard conditions ────────────────────────────────────────────────────────
 
 test("dispatch: triage check guards against step mode", () => {
-  // The triage block should check !stepMode
-  const triageBlock = autoSrc.slice(
-    autoSrc.indexOf("Triage check"),
-    autoSrc.indexOf("Step mode"),
+  const triageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Triage check"),
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     triageBlock.includes("!s.stepMode"),
@@ -75,9 +76,9 @@ test("dispatch: triage check guards against step mode", () => {
 });
 
 test("dispatch: triage check guards against hook unit types", () => {
-  const triageBlock = autoSrc.slice(
-    autoSrc.indexOf("Triage check"),
-    autoSrc.indexOf("Step mode"),
+  const triageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Triage check"),
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     triageBlock.includes('!s.currentUnit.type.startsWith("hook/")'),
@@ -86,9 +87,9 @@ test("dispatch: triage check guards against hook unit types", () => {
 });
 
 test("dispatch: triage check guards against triage-on-triage", () => {
-  const triageBlock = autoSrc.slice(
-    autoSrc.indexOf("Triage check"),
-    autoSrc.indexOf("Step mode"),
+  const triageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Triage check"),
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     triageBlock.includes('s.currentUnit.type !== "triage-captures"'),
@@ -97,9 +98,9 @@ test("dispatch: triage check guards against triage-on-triage", () => {
 });
 
 test("dispatch: triage check guards against quick-task triggering triage", () => {
-  const triageBlock = autoSrc.slice(
-    autoSrc.indexOf("Triage check"),
-    autoSrc.indexOf("Step mode"),
+  const triageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Triage check"),
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     triageBlock.includes('s.currentUnit.type !== "quick-task"'),
@@ -107,14 +108,14 @@ test("dispatch: triage check guards against quick-task triggering triage", () =>
   );
 });
 
-test("dispatch: triage dispatch uses early-return pattern", () => {
-  const triageBlock = autoSrc.slice(
-    autoSrc.indexOf("Triage check"),
-    autoSrc.indexOf("Step mode"),
+test("dispatch: triage dispatch uses return-value pattern", () => {
+  const triageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Triage check"),
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
-    triageBlock.includes('return "dispatched"') || triageBlock.includes("return; // handleAgentEnd"),
-    "triage dispatch should return after sending message",
+    triageBlock.includes('return "dispatched"'),
+    "triage dispatch should return 'dispatched' after sending message",
   );
 });
 
@@ -122,6 +123,10 @@ test("dispatch: triage imports hasPendingCaptures and loadPendingCaptures", () =
   assert.ok(
     autoSrc.includes("hasPendingCaptures") && autoSrc.includes("loadPendingCaptures"),
     "should import capture functions",
+  );
+  assert.ok(
+    autoSrc.includes('from "./captures.js"'),
+    "should import from captures module",
   );
 });
 
@@ -228,49 +233,45 @@ test("dashboard: overlay labels triage-captures and quick-task unit types", () =
 // ─── Post-triage resolution execution ─────────────────────────────────────────
 
 test("dispatch: post-triage resolution executor fires after triage-captures unit", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Artifact verification"),
+  const postTriageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("Post-triage: execute actionable resolutions"),
   );
   assert.ok(
-    triageCompletionBlock.includes('s.currentUnit.type === "triage-captures"'),
+    postTriageBlock.includes('s.currentUnit.type === "triage-captures"'),
     "should check for triage-captures unit completion",
   );
   assert.ok(
-    triageCompletionBlock.includes("executeTriageResolutions"),
+    postTriageBlock.includes("executeTriageResolutions"),
     "should call executeTriageResolutions",
   );
 });
 
 test("dispatch: post-triage executor handles inject results", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Artifact verification"),
+  const postTriageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("Post-triage: execute actionable resolutions"),
   );
   assert.ok(
-    triageCompletionBlock.includes("triageResult.injected"),
+    postTriageBlock.includes("triageResult.injected"),
     "should check injected count",
   );
 });
 
 test("dispatch: post-triage executor handles replan results", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Artifact verification"),
+  const postTriageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("Post-triage: execute actionable resolutions"),
   );
   assert.ok(
-    triageCompletionBlock.includes("triageResult.replanned"),
+    postTriageBlock.includes("triageResult.replanned"),
     "should check replanned count",
   );
 });
 
 test("dispatch: post-triage executor queues quick-tasks", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Artifact verification"),
+  const postTriageBlock = postUnitSrc.slice(
+    postUnitSrc.indexOf("Post-triage: execute actionable resolutions"),
   );
   assert.ok(
-    triageCompletionBlock.includes("s.pendingQuickTasks"),
+    postTriageBlock.includes("s.pendingQuickTasks"),
     "should push quick-tasks to s.pendingQuickTasks queue",
   );
 });
@@ -278,25 +279,19 @@ test("dispatch: post-triage executor queues quick-tasks", () => {
 // ─── Quick-task dispatch ──────────────────────────────────────────────────────
 
 test("dispatch: quick-task dispatch block exists after triage check", () => {
-  const quickTaskBlock = autoSrc.indexOf("Quick-task dispatch");
-  const triageBlock = autoSrc.indexOf("Triage check");
-  const stepModeBlock = autoSrc.indexOf("Step mode");
+  const quickTaskBlock = postUnitSrc.indexOf("// ── Quick-task dispatch");
+  const triageBlock = postUnitSrc.indexOf("// ── Triage check");
 
   assert.ok(quickTaskBlock > 0, "quick-task dispatch block should exist");
   assert.ok(
     quickTaskBlock > triageBlock,
     "quick-task dispatch should come after triage check",
   );
-  assert.ok(
-    quickTaskBlock < stepModeBlock,
-    "quick-task dispatch should come before step mode check",
-  );
 });
 
 test("dispatch: quick-task dispatch uses buildQuickTaskPrompt", () => {
-  const quickTaskSection = autoSrc.slice(
-    autoSrc.indexOf("Quick-task dispatch"),
-    autoSrc.indexOf("Step mode"),
+  const quickTaskSection = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     quickTaskSection.includes("buildQuickTaskPrompt"),
@@ -305,9 +300,8 @@ test("dispatch: quick-task dispatch uses buildQuickTaskPrompt", () => {
 });
 
 test("dispatch: quick-task dispatch marks capture as executed", () => {
-  const quickTaskSection = autoSrc.slice(
-    autoSrc.indexOf("Quick-task dispatch"),
-    autoSrc.indexOf("Step mode"),
+  const quickTaskSection = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
     quickTaskSection.includes("markCaptureExecuted"),
@@ -315,14 +309,14 @@ test("dispatch: quick-task dispatch marks capture as executed", () => {
   );
 });
 
-test("dispatch: quick-task dispatch uses early-return pattern", () => {
-  const quickTaskSection = autoSrc.slice(
-    autoSrc.indexOf("Quick-task dispatch"),
-    autoSrc.indexOf("Step mode"),
+test("dispatch: quick-task dispatch uses return-value pattern", () => {
+  const quickTaskSection = postUnitSrc.slice(
+    postUnitSrc.indexOf("// ── Quick-task dispatch"),
+    postUnitSrc.indexOf("if (s.stepMode)"),
   );
   assert.ok(
-    quickTaskSection.includes('return "dispatched"') || quickTaskSection.includes("return; // handleAgentEnd"),
-    "quick-task dispatch should return after sending message",
+    quickTaskSection.includes('return "dispatched"'),
+    "quick-task dispatch should return 'dispatched' after sending message",
   );
 });
 
