@@ -156,9 +156,8 @@ describe("createRun", () => {
 
     const runDir = createRun(base, "test-workflow");
 
-    // Extract the timestamp directory name
-    const parts = runDir.split("/");
-    const timestamp = parts[parts.length - 1];
+    // Extract the timestamp directory name (use path.sep for cross-platform)
+    const timestamp = runDir.split(/[/\\]/).pop()!;
 
     // Should not contain colons (filesystem-unsafe on Windows)
     assert.ok(!timestamp.includes(":"), `timestamp should not contain colons: ${timestamp}`);
