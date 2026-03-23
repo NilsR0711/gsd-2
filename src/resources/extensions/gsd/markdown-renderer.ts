@@ -1002,3 +1002,94 @@ export async function repairStaleRenders(basePath: string): Promise<number> {
 
   return repairCount;
 }
+
+// ─── Replan & Assessment Renderers ────────────────────────────────────────
+
+export interface ReplanData {
+  blockerTaskId: string;
+  blockerDescription: string;
+  whatChanged: string;
+}
+
+export interface AssessmentData {
+  verdict: string;
+  assessment: string;
+  completedSliceId?: string;
+}
+
+export async function renderReplanFromDb(
+  basePath: string,
+  milestoneId: string,
+  sliceId: string,
+  replanData: ReplanData,
+): Promise<{ replanPath: string; content: string }> {
+  const slicePath = resolveSlicePath(basePath, milestoneId, sliceId)
+    ?? join(gsdRoot(basePath), "milestones", milestoneId, "slices", sliceId);
+  const absPath = join(slicePath, `${sliceId}-REPLAN.md`);
+  const artifactPath = toArtifactPath(absPath, basePath);
+
+  const lines: string[] = [];
+  lines.push(`# ${sliceId} Replan`);
+  lines.push("");
+  lines.push(`**Milestone:** ${milestoneId}`);
+  lines.push(`**Slice:** ${sliceId}`);
+  lines.push(`**Blocker Task:** ${replanData.blockerTaskId}`);
+  lines.push(`**Created:** ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("## Blocker Description");
+  lines.push("");
+  lines.push(replanData.blockerDescription);
+  lines.push("");
+  lines.push("## What Changed");
+  lines.push("");
+  lines.push(replanData.whatChanged);
+  lines.push("");
+
+  const content = `${lines.join("\n").trimEnd()}\n`;
+
+  await writeAndStore(absPath, artifactPath, content, {
+    artifact_type: "REPLAN",
+    milestone_id: milestoneId,
+    slice_id: sliceId,
+  });
+
+  return { replanPath: absPath, content };
+}
+
+export async function renderAssessmentFromDb(
+  basePath: string,
+  milestoneId: string,
+  sliceId: string,
+  assessmentData: AssessmentData,
+): Promise<{ assessmentPath: string; content: string }> {
+  const slicePath = resolveSlicePath(basePath, milestoneId, sliceId)
+    ?? join(gsdRoot(basePath), "milestones", milestoneId, "slices", sliceId);
+  const absPath = join(slicePath, `${sliceId}-ASSESSMENT.md`);
+  const artifactPath = toArtifactPath(absPath, basePath);
+
+  const lines: string[] = [];
+  lines.push(`# ${sliceId} Assessment`);
+  lines.push("");
+  lines.push(`**Milestone:** ${milestoneId}`);
+  lines.push(`**Slice:** ${sliceId}`);
+  if (assessmentData.completedSliceId) {
+    lines.push(`**Completed Slice:** ${assessmentData.completedSliceId}`);
+  }
+  lines.push(`**Verdict:** ${assessmentData.verdict}`);
+  lines.push(`**Created:** ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("## Assessment");
+  lines.push("");
+  lines.push(assessmentData.assessment);
+  lines.push("");
+
+  const content = `${lines.join("\n").trimEnd()}\n`;
+
+  await writeAndStore(absPath, artifactPath, content, {
+    artifact_type: "ASSESSMENT",
+    milestone_id: milestoneId,
+    slice_id: sliceId,
+  });
+
+  return { assessmentPath: absPath, content };
+}

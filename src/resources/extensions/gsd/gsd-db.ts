@@ -1503,3 +1503,90 @@ export function reconcileWorktreeDb(
     return { ...zero, conflicts };
   }
 }
+
+// ─── Replan & Assessment Helpers ──────────────────────────────────────────
+
+export function insertReplanHistory(entry: {
+  milestoneId: string;
+  sliceId?: string | null;
+  taskId?: string | null;
+  summary: string;
+  previousArtifactPath?: string | null;
+  replacementArtifactPath?: string | null;
+}): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb.prepare(
+    `INSERT INTO replan_history (milestone_id, slice_id, task_id, summary, previous_artifact_path, replacement_artifact_path, created_at)
+     VALUES (:milestone_id, :slice_id, :task_id, :summary, :previous_artifact_path, :replacement_artifact_path, :created_at)`,
+  ).run({
+    ":milestone_id": entry.milestoneId,
+    ":slice_id": entry.sliceId ?? null,
+    ":task_id": entry.taskId ?? null,
+    ":summary": entry.summary,
+    ":previous_artifact_path": entry.previousArtifactPath ?? null,
+    ":replacement_artifact_path": entry.replacementArtifactPath ?? null,
+    ":created_at": new Date().toISOString(),
+  });
+}
+
+export function insertAssessment(entry: {
+  path: string;
+  milestoneId: string;
+  sliceId?: string | null;
+  taskId?: string | null;
+  status: string;
+  scope: string;
+  fullContent: string;
+}): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb.prepare(
+    `INSERT OR REPLACE INTO assessments (path, milestone_id, slice_id, task_id, status, scope, full_content, created_at)
+     VALUES (:path, :milestone_id, :slice_id, :task_id, :status, :scope, :full_content, :created_at)`,
+  ).run({
+    ":path": entry.path,
+    ":milestone_id": entry.milestoneId,
+    ":slice_id": entry.sliceId ?? null,
+    ":task_id": entry.taskId ?? null,
+    ":status": entry.status,
+    ":scope": entry.scope,
+    ":full_content": entry.fullContent,
+    ":created_at": new Date().toISOString(),
+  });
+}
+
+export function deleteTask(milestoneId: string, sliceId: string, taskId: string): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  // Must delete verification_evidence first (FK constraint)
+  currentDb.prepare(
+    `DELETE FROM verification_evidence WHERE milestone_id = :mid AND slice_id = :sid AND task_id = :tid`,
+  ).run({ ":mid": milestoneId, ":sid": sliceId, ":tid": taskId });
+  currentDb.prepare(
+    `DELETE FROM tasks WHERE milestone_id = :mid AND slice_id = :sid AND id = :tid`,
+  ).run({ ":mid": milestoneId, ":sid": sliceId, ":tid": taskId });
+}
+
+export function deleteSlice(milestoneId: string, sliceId: string): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  // Cascade-style manual deletion: evidence → tasks → slice
+  currentDb.prepare(
+    `DELETE FROM verification_evidence WHERE milestone_id = :mid AND slice_id = :sid`,
+  ).run({ ":mid": milestoneId, ":sid": sliceId });
+  currentDb.prepare(
+    `DELETE FROM tasks WHERE milestone_id = :mid AND slice_id = :sid`,
+  ).run({ ":mid": milestoneId, ":sid": sliceId });
+  currentDb.prepare(
+    `DELETE FROM slices WHERE milestone_id = :mid AND id = :sid`,
+  ).run({ ":mid": milestoneId, ":sid": sliceId });
+}
+
+export function getReplanHistory(milestoneId: string, sliceId?: string): Array<Record<string, unknown>> {
+  if (!currentDb) return [];
+  if (sliceId) {
+    return currentDb.prepare(
+      `SELECT * FROM replan_history WHERE milestone_id = :mid AND slice_id = :sid ORDER BY created_at DESC`,
+    ).all({ ":mid": milestoneId, ":sid": sliceId });
+  }
+  return currentDb.prepare(
+    `SELECT * FROM replan_history WHERE milestone_id = :mid ORDER BY created_at DESC`,
+  ).all({ ":mid": milestoneId });
+}

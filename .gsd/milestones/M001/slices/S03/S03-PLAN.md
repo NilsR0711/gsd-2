@@ -36,6 +36,10 @@ node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental
 
 # Full regression — existing tests still pass
 node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/plan-milestone.test.ts src/resources/extensions/gsd/tests/plan-slice.test.ts src/resources/extensions/gsd/tests/plan-task.test.ts src/resources/extensions/gsd/tests/markdown-renderer.test.ts src/resources/extensions/gsd/tests/rogue-file-detection.test.ts
+
+# Diagnostic — verify structured error payloads name specific task/slice IDs in rejection messages
+# (covered by replan-handler.test.ts "structured error payloads" and reassess-handler.test.ts equivalents)
+grep -c "structured error payloads" src/resources/extensions/gsd/tests/replan-handler.test.ts src/resources/extensions/gsd/tests/reassess-handler.test.ts
 ```
 
 ## Observability / Diagnostics
@@ -52,7 +56,7 @@ node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental
 
 ## Tasks
 
-- [ ] **T01: Implement replan_slice handler with structural enforcement** `est:1h`
+- [x] **T01: Implement replan_slice handler with structural enforcement** `est:1h`
   - Why: Delivers R005 — the core replan handler that queries DB for completed tasks and structurally rejects mutations to them. Also adds required DB helpers (`insertReplanHistory`, `deleteTask`, `deleteSlice`) and the REPLAN.md renderer that all downstream work depends on.
   - Files: `src/resources/extensions/gsd/gsd-db.ts`, `src/resources/extensions/gsd/tools/replan-slice.ts`, `src/resources/extensions/gsd/markdown-renderer.ts`, `src/resources/extensions/gsd/tests/replan-handler.test.ts`
   - Do: (1) Add `insertReplanHistory()`, `insertAssessment()`, `deleteTask()`, `deleteSlice()` to `gsd-db.ts`. `deleteTask` must first delete from `verification_evidence` (FK constraint) before deleting the task row. `deleteSlice` must delete all child tasks' evidence, then child tasks, then the slice. (2) Add `renderReplanFromDb()` and `renderAssessmentFromDb()` to `markdown-renderer.ts` — both use `writeAndStore()` pattern. REPLAN.md should contain the blocker description, what changed, and the updated task list. ASSESSMENT.md should contain the verdict, assessment text, and slice changes. (3) Create `tools/replan-slice.ts` with `handleReplanSlice()`. Params: milestoneId, sliceId, blockerTaskId, blockerDescription, whatChanged, updatedTasks array (taskId, title, description, estimate, files, verify, inputs, expectedOutput), removedTaskIds array. Validate flat params. Query `getSliceTasks()` for completed tasks (status === 'complete' or 'done'). Reject if any updatedTasks[].taskId or removedTaskIds element matches a completed task. In transaction: write replan_history row, apply task mutations (upsert updated tasks via insertTask+upsertTaskPlanning, delete removed tasks), insert new tasks. After transaction: re-render PLAN.md via `renderPlanFromDb()`, render REPLAN.md via `renderReplanFromDb()`, invalidate caches. (4) Write `tests/replan-handler.test.ts` using `node:test` and the same pattern as `plan-slice.test.ts`. Tests must prove: validation failures, structural rejection of completed task update, structural rejection of completed task removal, successful replan modifying only incomplete tasks, replan_history row persistence, re-rendered PLAN.md correctness, REPLAN.md existence, cache invalidation via parse-visible state.
