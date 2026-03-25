@@ -470,7 +470,7 @@ export async function runGSDDoctor(basePath: string, options?: { fix?: boolean; 
     if (!roadmapContent) continue;
 
     // Normalize slices: prefer DB, fall back to parser
-    type NormSlice = RoadmapSliceEntry;
+    type NormSlice = RoadmapSliceEntry & { pending?: boolean };
     let slices: NormSlice[];
     if (isDbAvailable()) {
       const dbSlices = getMilestoneSlices(milestoneId);
@@ -478,6 +478,7 @@ export async function runGSDDoctor(basePath: string, options?: { fix?: boolean; 
         id: s.id,
         title: s.title,
         done: s.status === "complete",
+        pending: s.status === "pending",
         risk: (s.risk || "medium") as RoadmapSliceEntry["risk"],
         depends: s.depends,
         demo: s.demo,
@@ -564,6 +565,9 @@ export async function runGSDDoctor(basePath: string, options?: { fix?: boolean; 
 
       const slicePath = resolveSlicePath(basePath, milestoneId, slice.id);
       if (!slicePath) {
+        // Pending slices haven't been planned yet — directories are created
+        // lazily by ensurePreconditions() at dispatch time. Skip them.
+        if (slice.pending) continue;
         const expectedPath = relSlicePath(basePath, milestoneId, slice.id);
         issues.push({
           severity: slice.done ? "warning" : "error",
@@ -586,6 +590,8 @@ export async function runGSDDoctor(basePath: string, options?: { fix?: boolean; 
 
       const tasksDir = resolveTasksDir(basePath, milestoneId, slice.id);
       if (!tasksDir) {
+        // Pending slices haven't been planned yet — tasks/ is created on demand.
+        if (slice.pending) continue;
         issues.push({
           severity: slice.done ? "warning" : "error",
           code: "missing_tasks_dir",
