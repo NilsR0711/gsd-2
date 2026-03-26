@@ -38,6 +38,7 @@ import { clearActivityLogState } from "./activity-log.js";
 import {
   synthesizeCrashRecovery,
   getDeepDiagnostic,
+  readActiveMilestoneId,
 } from "./session-forensics.js";
 import {
   writeLock,
@@ -980,7 +981,11 @@ function buildLoopDeps(): LoopDeps {
     startUnitSupervision,
 
     // Prompt helpers
-    getDeepDiagnostic,
+    getDeepDiagnostic: (basePath: string) => {
+      const mid = readActiveMilestoneId(basePath);
+      const wtPath = mid ? getAutoWorktreePath(basePath, mid) : undefined;
+      return getDeepDiagnostic(basePath, wtPath ?? undefined);
+    },
     isDbAvailable,
     reorderForCaching,
 
