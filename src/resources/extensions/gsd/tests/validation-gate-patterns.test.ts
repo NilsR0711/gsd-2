@@ -25,7 +25,7 @@ function hasOperationalEvidence(validationContent: string): boolean {
     validationContent.includes("Operational") &&
     (validationContent.includes("MET") || validationContent.includes("N/A"));
   const proseMatch =
-    /[Oo]perational[\s:][^\n]*(?:pass|verified|confirmed|met|complete|true|yes|addressed|covered|n\/a|not\s+applicable)/i.test(
+    /[Oo]perational[\s:][^\n]*(?:✅|pass|verified|confirmed|met|complete|true|yes|addressed|covered|n\/a|not\s+applicable)/i.test(
       validationContent,
     );
   return structuredMatch || proseMatch;
@@ -101,6 +101,11 @@ test('prose: "Operational: n/a" passes', () => {
 
 test('prose: "Operational: complete" passes', () => {
   const content = `Operational: complete — all health checks green.`;
+  assert.ok(hasOperationalEvidence(content));
+});
+
+test('prose: "Operational: ✅" checkmark emoji passes (issue #2862)', () => {
+  const content = `- **Operational:** ✅ DECISIONS.md documents D009-D013`;
   assert.ok(hasOperationalEvidence(content));
 });
 

@@ -683,7 +683,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
                   validationContent.includes("Operational") &&
                   (validationContent.includes("MET") || validationContent.includes("N/A"));
                 const proseMatch =
-                  /[Oo]perational[\s:][^\n]*(?:pass|verified|confirmed|met|complete|true|yes|addressed|covered|n\/a|not\s+applicable)/i.test(validationContent);
+                  /[Oo]perational[\s:][^\n]*(?:✅|pass|verified|confirmed|met|complete|true|yes|addressed|covered|n\/a|not\s+applicable)/i.test(validationContent);
                 const hasOperationalCheck = structuredMatch || proseMatch;
                 if (!hasOperationalCheck) {
                   return {
