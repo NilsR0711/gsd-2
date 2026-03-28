@@ -19,7 +19,6 @@ import { getActiveWorktreeName, getWorktreeOriginalCwd } from "../worktree-comma
 import { deriveState } from "../state.js";
 import { formatOverridesSection, formatShortcut, loadActiveOverrides, loadFile, parseContinue, parseSummary } from "../files.js";
 import { toPosixPath } from "../../shared/mod.js";
-import { markCmuxPromptShown, shouldPromptToEnableCmux } from "../../cmux/index.js";
 import { autoEnableCmuxPreferences } from "../commands-cmux.js";
 
 const gsdHome = process.env.GSD_HOME || join(homedir(), ".gsd");
@@ -99,6 +98,7 @@ export async function buildBeforeAgentStartResult(
     shortcutShell: formatShortcut("Ctrl+Alt+B"),
   });
   let loadedPreferences = loadEffectiveGSDPreferences();
+  const { markCmuxPromptShown, shouldPromptToEnableCmux } = await import("../../cmux/index.js");
   if (shouldPromptToEnableCmux(loadedPreferences?.preferences)) {
     markCmuxPromptShown();
     if (autoEnableCmuxPreferences()) {

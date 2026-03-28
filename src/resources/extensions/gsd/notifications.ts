@@ -4,7 +4,6 @@
 import { execFileSync } from "node:child_process";
 import type { NotificationPreferences } from "./types.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
-import { CmuxClient, emitOsc777Notification, resolveCmuxConfig } from "../cmux/index.js";
 import { sendRemoteNotification } from "../remote-questions/notify.js";
 
 export type NotifyLevel = "info" | "success" | "warning" | "error";
@@ -39,20 +38,22 @@ export function sendDesktopNotification(
 
   if (!shouldSendDesktopNotification(kind, loaded?.notifications)) return;
 
-  const cmux = resolveCmuxConfig(loaded);
-  if (cmux.notifications) {
-    const delivered = CmuxClient.fromPreferences(loaded).notify(title, message);
-    if (delivered) return;
-    emitOsc777Notification(title, message);
-  }
+  void import("../cmux/index.js").then(({ CmuxClient, emitOsc777Notification, resolveCmuxConfig }) => {
+    const cmux = resolveCmuxConfig(loaded);
+    if (cmux.notifications) {
+      const delivered = CmuxClient.fromPreferences(loaded).notify(title, message);
+      if (delivered) return;
+      emitOsc777Notification(title, message);
+    }
 
-  try {
-    const command = buildDesktopNotificationCommand(process.platform, title, message, level);
-    if (!command) return;
-    execFileSync(command.file, command.args, { timeout: 3000, stdio: "ignore" });
-  } catch {
-    // Non-fatal — desktop notifications are best-effort
-  }
+    try {
+      const command = buildDesktopNotificationCommand(process.platform, title, message, level);
+      if (!command) return;
+      execFileSync(command.file, command.args, { timeout: 3000, stdio: "ignore" });
+    } catch {
+      // Non-fatal — desktop notifications are best-effort
+    }
+  });
 }
 
 export function shouldSendDesktopNotification(
