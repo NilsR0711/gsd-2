@@ -75,6 +75,8 @@ interface NavRailProps {
 }
 
 export function NavRail({ activeView, onViewChange, isConnecting = false }: NavRailProps) {
+  const t = useTranslations("sidebar")
+  const tShell = useTranslations("shell")
   const { openCommandSurface } = useGSDWorkspaceActions()
   const manager = useProjectStoreManager()
   const activeProjectCwd = useSyncExternalStore(manager.subscribe, manager.getSnapshot, manager.getSnapshot)
@@ -88,17 +90,17 @@ export function NavRail({ activeView, onViewChange, isConnecting = false }: NavR
   }
 
   const themeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor
-  const themeLabel = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System"
+  const themeLabel = theme === "light" ? t("theme.light") : theme === "dark" ? t("theme.dark") : t("theme.system")
   const ThemeIcon = themeIcon
 
   const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "power", label: "Power Mode", icon: Columns2 },
-    { id: "chat", label: "Chat", icon: MessagesSquare },
-    { id: "roadmap", label: "Roadmap", icon: MapIcon },
-    { id: "files", label: "Files", icon: Folder },
-    { id: "activity", label: "Activity", icon: Activity },
-    { id: "visualize", label: "Visualize", icon: BarChart3 },
+    { id: "dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
+    { id: "power", label: t("nav.power"), icon: Columns2 },
+    { id: "chat", label: t("nav.chat"), icon: MessagesSquare },
+    { id: "roadmap", label: t("nav.roadmap"), icon: MapIcon },
+    { id: "files", label: t("nav.files"), icon: Folder },
+    { id: "activity", label: t("nav.activity"), icon: Activity },
+    { id: "visualize", label: t("nav.visualize"), icon: BarChart3 },
   ]
 
   return (
@@ -116,7 +118,7 @@ export function NavRail({ activeView, onViewChange, isConnecting = false }: NavR
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
-          title={isConnecting ? "Connecting…" : item.label}
+          title={isConnecting ? t("tooltip.connecting") : item.label}
         >
           <item.icon className="h-5 w-5" />
         </button>
@@ -131,7 +133,7 @@ export function NavRail({ activeView, onViewChange, isConnecting = false }: NavR
               ? "cursor-not-allowed text-muted-foreground/50"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
-          title={isConnecting ? "Connecting…" : "Projects"}
+          title={isConnecting ? t("tooltip.connecting") : t("nav.projects")}
         >
           <FolderKanban className="h-5 w-5" />
         </button>
@@ -231,6 +233,7 @@ function ExitDialog({
   onCloseProject: (cwd: string) => void
   onStopServer: () => void
 }) {
+  const t = useTranslations("sidebar")
   const hasMultipleProjects = projectCount > 1
   const projectName = activeProjectCwd ? activeProjectCwd.split("/").pop() ?? activeProjectCwd : null
 
@@ -240,21 +243,22 @@ function ExitDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Stop the GSD web server?</DialogTitle>
+            <DialogTitle>{t("stopServer.title")}</DialogTitle>
             <DialogDescription>
-              This will shut down the server process and close this tab. Run{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">gsd --web</code> again to restart.
+              {t.rich("stopServer.description", {
+                code: (chunks) => <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{chunks}</code>,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("stopServer.cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={onStopServer}
             >
-              Stop server
+              {t("stopServer.stop")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -267,9 +271,12 @@ function ExitDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Close project or stop server?</DialogTitle>
+          <DialogTitle>{t("closeProject.title")}</DialogTitle>
           <DialogDescription>
-            You have {projectCount} projects open. You can close just the current project or stop the entire server.
+            {t.rich("closeProject.stopAll", {
+              projectCount,
+              code: (chunks) => <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{chunks}</code>,
+            })}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 py-2">
@@ -281,9 +288,9 @@ function ExitDialog({
             >
               <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
-                <div className="text-sm font-medium">Close {projectName}</div>
+                <div className="text-sm font-medium">{t("closeProject.closeProject", { projectName: projectName ?? "" })}</div>
                 <div className="text-xs text-muted-foreground">
-                  Disconnect this project and switch to another
+                  {t("closeProject.closeProjectDescription")}
                 </div>
               </div>
             </Button>
@@ -295,16 +302,16 @@ function ExitDialog({
           >
             <LogOut className="h-4 w-4 shrink-0" />
             <div className="min-w-0">
-              <div className="text-sm font-medium">Stop server</div>
+              <div className="text-sm font-medium">{t("stopServer.stop")}</div>
               <div className="text-xs text-muted-foreground">
-                Shut down all {projectCount} projects and close the tab
+                {t("closeProject.stopAll", { projectCount })}
               </div>
             </div>
           </Button>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("stopServer.cancel")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -315,6 +322,8 @@ function ExitDialog({
 /* ─── Milestone Explorer (right sidebar) ─── */
 
 export function MilestoneExplorer({ isConnecting = false, width, onCollapse }: { isConnecting?: boolean; width?: number; onCollapse?: () => void }) {
+  const t = useTranslations("sidebar")
+  const tShell = useTranslations("shell")
   const workspace = useGSDWorkspaceState()
   const { openCommandSurface, setCommandSurfaceSection, sendCommand } = useGSDWorkspaceActions()
   const [expandedMilestones, setExpandedMilestones] = useState<string[]>([])
@@ -400,7 +409,7 @@ export function MilestoneExplorer({ isConnecting = false, width, onCollapse }: {
         <div className="flex-1 overflow-y-auto px-1.5 py-1">
           <div className="px-2 py-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Milestones
+              {tShell("milestones")}
             </span>
           </div>
           <div className="space-y-0.5 px-1">
@@ -433,7 +442,7 @@ export function MilestoneExplorer({ isConnecting = false, width, onCollapse }: {
           <div className="flex items-start justify-between px-2 py-1.5">
             <div className="min-w-0">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Milestones
+                {tShell("milestones")}
               </span>
               <div className="mt-1 text-xs text-foreground" data-testid="sidebar-current-scope">
                 {currentScopeLabel}
@@ -443,7 +452,7 @@ export function MilestoneExplorer({ isConnecting = false, width, onCollapse }: {
               <button
                 onClick={onCollapse}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                title="Collapse sidebar"
+                title={t("tooltip.collapseSidebar")}
               >
                 <PanelRightClose className="h-3.5 w-3.5" />
               </button>
@@ -625,6 +634,7 @@ export function MilestoneExplorer({ isConnecting = false, width, onCollapse }: {
 /* ─── Collapsed Milestone Sidebar (icon-only rail) ─── */
 
 export function CollapsedMilestoneSidebar({ onExpand }: { onExpand: () => void }) {
+  const t = useTranslations("sidebar")
   const workspace = useGSDWorkspaceState()
   const { sendCommand } = useGSDWorkspaceActions()
 
@@ -660,7 +670,7 @@ export function CollapsedMilestoneSidebar({ onExpand }: { onExpand: () => void }
       <button
         onClick={onExpand}
         className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        title="Expand milestone sidebar"
+        title={t("tooltip.expandMilestoneSidebar")}
       >
         <PanelRightOpen className="h-4 w-4" />
       </button>
@@ -716,6 +726,7 @@ export function Sidebar({ activeView, onViewChange, isConnecting = false, mobile
 /* ─── Mobile Nav Panel (full-width labels for touch) ─── */
 
 function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavRailProps) {
+  const t = useTranslations("sidebar")
   const { openCommandSurface } = useGSDWorkspaceActions()
   const { theme, setTheme } = useTheme()
 
@@ -725,17 +736,17 @@ function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavR
     else setTheme("system")
   }
 
-  const themeLabel = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System"
+  const themeLabel = theme === "light" ? t("theme.light") : theme === "dark" ? t("theme.dark") : t("theme.system")
   const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor
 
   const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "power", label: "Power Mode", icon: Columns2 },
-    { id: "chat", label: "Chat", icon: MessagesSquare },
-    { id: "roadmap", label: "Roadmap", icon: MapIcon },
-    { id: "files", label: "Files", icon: Folder },
-    { id: "activity", label: "Activity", icon: Activity },
-    { id: "visualize", label: "Visualize", icon: BarChart3 },
+    { id: "dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
+    { id: "power", label: t("nav.power"), icon: Columns2 },
+    { id: "chat", label: t("nav.chat"), icon: MessagesSquare },
+    { id: "roadmap", label: t("nav.roadmap"), icon: MapIcon },
+    { id: "files", label: t("nav.files"), icon: Folder },
+    { id: "activity", label: t("nav.activity"), icon: Activity },
+    { id: "visualize", label: t("nav.visualize"), icon: BarChart3 },
   ]
 
   return (
@@ -767,7 +778,7 @@ function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavR
           className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors min-h-[44px]"
         >
           <FolderKanban className="h-5 w-5 shrink-0" />
-          Projects
+          {t("nav.projects")}
         </button>
         <button
           onClick={() => !isConnecting && openCommandSurface("git", { source: "sidebar" })}
@@ -775,7 +786,7 @@ function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavR
           className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors min-h-[44px]"
         >
           <GitBranch className="h-5 w-5 shrink-0" />
-          Git
+          {t("nav.git")}
         </button>
         <button
           onClick={() => !isConnecting && openCommandSurface("settings", { source: "sidebar" })}
@@ -783,7 +794,7 @@ function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavR
           className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors min-h-[44px]"
         >
           <Settings className="h-5 w-5 shrink-0" />
-          Settings
+          {t("nav.settings")}
         </button>
         <button
           onClick={() => !isConnecting && cycleTheme()}
@@ -791,7 +802,7 @@ function MobileNavPanel({ activeView, onViewChange, isConnecting = false }: NavR
           className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors min-h-[44px]"
         >
           <ThemeIcon className="h-5 w-5 shrink-0" />
-          Theme: {themeLabel}
+          {themeLabel}
         </button>
       </div>
     </div>

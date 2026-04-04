@@ -47,10 +47,10 @@ function inputModePlaceholder(mode: InputMode, state: ReturnType<typeof useGSDWo
   }
 }
 
-function inputModeLabel(mode: InputMode): string {
+function inputModeLabel(mode: InputMode, t: (key: string) => string): string {
   switch (mode) {
     case "steer":
-      return "steer"
+      return t("steer")
     case "follow_up":
       return "follow-up"
     case "prompt":
@@ -83,9 +83,11 @@ function getWidgetsForPlacement(
 function TerminalWidgetBand({
   placement,
   widgets,
+  t,
 }: {
   placement: WidgetPlacement
   widgets: Array<{ key: string; placement: WidgetPlacement; visibleLines: string[]; hiddenLineCount: number; fullText: string }>
+  t: (key: string, values?: Record<string, string | number>) => string
 }) {
   if (widgets.length === 0) return null
 
@@ -106,7 +108,7 @@ function TerminalWidgetBand({
           >
             <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
               <span className="truncate">{widget.key}</span>
-              <span>{widget.placement === "aboveEditor" ? "Above editor" : "Below editor"}</span>
+              <span>{widget.placement === "aboveEditor" ? t("aboveEditor") : t("belowEditor")}</span>
             </div>
             <div className="space-y-1 text-xs text-foreground">
               {widget.visibleLines.map((line, index) => (
@@ -116,7 +118,7 @@ function TerminalWidgetBand({
               ))}
               {widget.hiddenLineCount > 0 && (
                 <div className="text-[11px] text-muted-foreground" data-testid="terminal-widget-overflow">
-                  +{widget.hiddenLineCount} more line{widget.hiddenLineCount === 1 ? "" : "s"}
+                  {t("moreLines", { count: widget.hiddenLineCount })}
                 </div>
               )}
             </div>
@@ -128,6 +130,7 @@ function TerminalWidgetBand({
 }
 
 export function Terminal({ className }: TerminalProps) {
+  const t = useTranslations("terminal")
   const workspace = useGSDWorkspaceState()
   const { submitInput, sendAbort, sendSteer, consumeEditorTextBuffer } = useGSDWorkspaceActions()
   const [input, setInput] = useState("")
@@ -188,7 +191,7 @@ export function Terminal({ className }: TerminalProps) {
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2 text-[11px] text-muted-foreground">
         <div className="min-w-0 flex items-center gap-2 truncate">
           <span data-testid="terminal-session-banner">
-            {sessionLabel || "Waiting for live session…"}
+            {sessionLabel || t("waitingForSession")}
           </span>
           {/* Active tool execution badge */}
           {workspace.activeToolExecution && (
@@ -216,7 +219,7 @@ export function Terminal({ className }: TerminalProps) {
               data-testid="terminal-abort-button"
             >
               <OctagonX className="h-3 w-3" />
-              Abort
+              {t("abort")}
             </Button>
           )}
           <span
@@ -284,14 +287,14 @@ export function Terminal({ className }: TerminalProps) {
         {isStreaming && !workspace.streamingAssistantText && !workspace.activeToolExecution && (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
-            Agent is thinking…
+            {t("agentThinking")}
           </div>
         )}
 
         <div ref={bottomRef} />
       </div>
 
-      <TerminalWidgetBand placement="aboveEditor" widgets={widgetsAboveEditor} />
+      <TerminalWidgetBand placement="aboveEditor" widgets={widgetsAboveEditor} t={t} />
 
       {/* Input area with steer toggle */}
       <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-border/50 px-4 py-2">
@@ -314,7 +317,7 @@ export function Terminal({ className }: TerminalProps) {
             data-testid="terminal-steer-toggle"
           >
             <Compass className="h-3 w-3" />
-            Steer
+            {t("steer")}
           </Button>
         )}
         <span
@@ -323,7 +326,7 @@ export function Terminal({ className }: TerminalProps) {
             inputMode === "steer" && "font-semibold text-foreground",
           )}
         >
-          {inputModeLabel(inputMode)}
+          {inputModeLabel(inputMode, t)}
         </span>
         <input
           ref={inputRef}
@@ -331,17 +334,17 @@ export function Terminal({ className }: TerminalProps) {
           value={input}
           onChange={(event) => setInput(event.target.value)}
           className="flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground"
-          placeholder={inputModePlaceholder(inputMode, workspace)}
+          placeholder={inputModePlaceholder(inputMode, workspace, t)}
           disabled={isInputDisabled}
           data-testid="terminal-command-input"
           autoFocus
         />
         {workspace.commandInFlight && (
-          <span className="text-xs text-muted-foreground">{workspace.commandInFlight}…</span>
+          <span className="text-xs text-muted-foreground">{t("streaming", { command: workspace.commandInFlight })}</span>
         )}
       </form>
 
-      <TerminalWidgetBand placement="belowEditor" widgets={widgetsBelowEditor} />
+      <TerminalWidgetBand placement="belowEditor" widgets={widgetsBelowEditor} t={t} />
     </div>
   )
 }
