@@ -1143,8 +1143,21 @@ export async function showSmartEntry(
     // Without this guard, every subsequent /gsd call overwrites the pending auto-start
     // and fires another dispatchWorkflow, resetting the conversation mid-interview.
     if (pendingAutoStartMap.has(basePath)) {
-      ctx.ui.notify("Discussion already in progress — answer the question above to continue.", "info");
-      return;
+      // #3274: If /clear interrupted the discussion, the pending entry is stale.
+      // Detect this by checking if the discussion manifest still exists — it's
+      // only present while a discuss flow is actively in progress.
+      const manifestExists = existsSync(join(gsdRoot(basePath), "DISCUSSION-MANIFEST.json"));
+      const entry = pendingAutoStartMap.get(basePath)!;
+      const milestoneHasContext = existsSync(
+        join(gsdRoot(basePath), "milestones", entry.milestoneId, `${entry.milestoneId}-CONTEXT.md`),
+      );
+      if (!manifestExists && !milestoneHasContext) {
+        // Stale entry from an interrupted discussion — clear and continue
+        pendingAutoStartMap.delete(basePath);
+      } else {
+        ctx.ui.notify("Discussion already in progress — answer the question above to continue.", "info");
+        return;
+      }
     }
 
     const milestoneIds = findMilestoneIds(basePath);
