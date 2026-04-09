@@ -311,6 +311,12 @@ describe("Custom engine loop integration", () => {
       `stopAuto reason should include "Workflow complete", got: ${stopEntry}`,
     );
 
+    assert.equal(
+      deps.callLog.filter((e: string) => e === "deriveState").length,
+      3,
+      "custom engine should stop immediately after a milestone-complete reconcile",
+    );
+
     // Verify dev path was NOT used (resolveDispatch should not appear)
     assert.ok(
       !deps.callLog.includes("resolveDispatch"),
