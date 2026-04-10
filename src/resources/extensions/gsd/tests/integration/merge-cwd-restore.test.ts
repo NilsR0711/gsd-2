@@ -1,4 +1,5 @@
 /**
+ * GSD-2 — Regression tests for merge cwd restore (#2929)
  * merge-cwd-restore.test.ts — Regression tests for #2929.
  *
  * Verifies:
@@ -14,7 +15,7 @@
  * onto main.
  */
 
-import test from "node:test";
+import { describe, test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -54,27 +55,35 @@ function createTempRepo(): string {
   return dir;
 }
 
-function cleanup(dir: string): void {
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* */
-  }
-}
-
 function makeRoadmap(mid: string, title: string): string {
-  return `# ${mid}: ${title}\n\n## Slices\n- [x] **S01: Test slice**\n`;
+  return [
+    `# ${mid}: Test milestone`,
+    "",
+    "## Slices",
+    "- [x] **S01: Test slice**",
+  ].join("\n");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 1: MergeConflictError restores cwd (#2929 bug 2)
-// ─────────────────────────────────────────────────────────────────────────────
+describe("merge cwd restore (#2929)", () => {
+  let repo: string;
+  let savedCwd: string;
 
-test("#2929 bug 2 — MergeConflictError restores cwd to pre-merge directory", () => {
-  const savedCwd = process.cwd();
-  const repo = createTempRepo();
+  beforeEach(() => {
+    savedCwd = process.cwd();
+    repo = createTempRepo();
+  });
 
-  try {
+  afterEach(() => {
+    process.chdir(savedCwd);
+    try { run("git reset --hard HEAD", repo); } catch { /* */ }
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 1: MergeConflictError restores cwd (#2929 bug 2)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  test("MergeConflictError restores cwd to pre-merge directory", () => {
     // Create milestone branch that modifies README.md
     run("git checkout -b milestone/M010", repo);
     writeFileSync(join(repo, "README.md"), "# M010 version\n");
@@ -108,26 +117,13 @@ test("#2929 bug 2 — MergeConflictError restores cwd to pre-merge directory", (
       cwdBefore,
       "cwd should be restored after MergeConflictError — was left on integration branch before fix",
     );
-  } finally {
-    process.chdir(savedCwd);
-    try {
-      run("git reset --hard HEAD", repo);
-    } catch {
-      /* */
-    }
-    cleanup(repo);
-  }
-});
+  });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 2: autoCommitDirtyState skipped when on integration branch (#2929 bug 1)
-// ─────────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 2: autoCommitDirtyState skipped when on integration branch (#2929 bug 1)
+  // ─────────────────────────────────────────────────────────────────────────
 
-test("#2929 bug 1 — autoCommitDirtyState does not commit on integration branch in worktree mode", () => {
-  const savedCwd = process.cwd();
-  const repo = createTempRepo();
-
-  try {
+  test("autoCommitDirtyState does not commit on integration branch in worktree mode", () => {
     // Create milestone branch with real work
     run("git checkout -b milestone/M010", repo);
     writeFileSync(join(repo, "m010.ts"), "export const m010 = true;\n");
@@ -169,13 +165,5 @@ test("#2929 bug 1 — autoCommitDirtyState does not commit on integration branch
       !filesInSquash.includes("dirty-from-m020.txt"),
       "dirty-from-m020.txt should NOT be in the squash merge commit",
     );
-  } finally {
-    process.chdir(savedCwd);
-    try {
-      run("git reset --hard HEAD", repo);
-    } catch {
-      /* */
-    }
-    cleanup(repo);
-  }
+  });
 });
