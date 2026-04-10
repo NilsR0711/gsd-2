@@ -499,8 +499,8 @@ async function prepareAndBuildDiscussPrompt(
           preparationContext = `\n\n## Preparation Context\n\nThe system analyzed the codebase before this discussion. Use these findings as background context — they describe what already exists, NOT what the user wants to build. Always ask the user what they want to build first.\n\n${parts.join("\n\n")}`;
         }
       }
-    } catch {
-      // Non-fatal — proceed without preparation context
+    } catch (err) {
+      logWarning("guided", `preparation failed, proceeding without context: ${(err as Error).message}`);
     }
   }
 
