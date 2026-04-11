@@ -678,7 +678,7 @@ export async function bootstrapAutoSession(
     }
 
     // ── DB lifecycle ──
-    const gsdDbPath = join(s.basePath, ".gsd", "gsd.db");
+    const gsdDbPath = resolveProjectRootDbPath(s.basePath);
     const gsdDirPath = join(s.basePath, ".gsd");
     if (existsSync(gsdDirPath) && !existsSync(gsdDbPath)) {
       const hasDecisions = existsSync(join(gsdDirPath, "DECISIONS.md"));
