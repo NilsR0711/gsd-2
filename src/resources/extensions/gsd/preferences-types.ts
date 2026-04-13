@@ -20,7 +20,7 @@ import type {
   ReactiveExecutionConfig,
   GateEvaluationConfig,
 } from "./types.js";
-import type { DynamicRoutingConfig } from "./model-router.js";
+import type { DynamicRoutingConfig, ModelCapabilities } from "./model-router.js";
 
 export interface ContextManagementConfig {
   observation_masking?: boolean;          // default: true
@@ -255,6 +255,8 @@ export interface GSDPreferences {
   post_unit_hooks?: PostUnitHookConfig[];
   pre_dispatch_hooks?: PreDispatchHookConfig[];
   dynamic_routing?: DynamicRoutingConfig;
+  /** Per-model capability overrides. Deep-merged with built-in profiles for capability-aware routing (ADR-004). */
+  modelOverrides?: Record<string, { capabilities?: Partial<ModelCapabilities> }>;
   context_management?: ContextManagementConfig;
   token_profile?: TokenProfile;
   phases?: PhaseSkipPreferences;
@@ -381,4 +383,20 @@ export interface SkillResolutionReport {
   resolutions: Map<string, SkillResolution>;
   /** References that could not be resolved. */
   warnings: string[];
+}
+
+/**
+ * Format a skill reference for the system prompt.
+ * If resolved, shows the path so the agent knows exactly where to read.
+ * If unresolved, marks it clearly.
+ */
+export function formatSkillRef(ref: string, resolutions: Map<string, SkillResolution>): string {
+  const resolution = resolutions.get(ref);
+  if (!resolution || resolution.method === "unresolved") {
+    return `${ref} (⚠ not found — check skill name or path)`;
+  }
+  if (resolution.method === "absolute-path" || resolution.method === "absolute-dir") {
+    return ref;
+  }
+  return `${ref} → \`${resolution.resolvedPath}\``;
 }

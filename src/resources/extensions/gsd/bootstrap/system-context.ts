@@ -9,6 +9,7 @@ import { debugTime } from "../debug-logger.js";
 import { loadPrompt, getTemplatesDir } from "../prompt-loader.js";
 import { readForensicsMarker } from "../forensics.js";
 import { resolveAllSkillReferences, renderPreferencesForSystemPrompt, loadEffectiveGSDPreferences } from "../preferences.js";
+import { resolveModelWithFallbacksForUnit } from "../preferences-models.js";
 import { resolveSkillReference } from "../preferences-skills.js";
 import { resolveGsdRootFile, resolveSliceFile, resolveSlicePath, resolveTaskFile, resolveTaskFiles, resolveTasksDir, relSliceFile, relSlicePath, relTaskFile } from "../paths.js";
 import { ensureCodebaseMapFresh, readCodebaseMap } from "../codebase-generator.js";
@@ -19,6 +20,7 @@ import { deriveState } from "../state.js";
 import { formatOverridesSection, formatShortcut, loadActiveOverrides, loadFile, parseContinue, parseSummary } from "../files.js";
 import { toPosixPath } from "../../shared/mod.js";
 import { markCmuxPromptShown, shouldPromptToEnableCmux } from "../../cmux/index.js";
+import { autoEnableCmuxPreferences } from "../commands-cmux.js";
 
 const gsdHome = process.env.GSD_HOME || join(homedir(), ".gsd");
 
@@ -76,13 +78,16 @@ export async function buildBeforeAgentStartResult(
     shortcutDashboard: formatShortcut("Ctrl+Alt+G"),
     shortcutShell: formatShortcut("Ctrl+Alt+B"),
   });
-  const loadedPreferences = loadEffectiveGSDPreferences();
+  let loadedPreferences = loadEffectiveGSDPreferences();
   if (shouldPromptToEnableCmux(loadedPreferences?.preferences)) {
     markCmuxPromptShown();
-    ctx.ui.notify(
-      "cmux detected. Run /gsd cmux on to enable sidebar metadata, notifications, and visual subagent splits for this project.",
-      "info",
-    );
+    if (autoEnableCmuxPreferences()) {
+      loadedPreferences = loadEffectiveGSDPreferences();
+      ctx.ui.notify(
+        "cmux detected — auto-enabled. Run /gsd cmux off to disable.",
+        "info",
+      );
+    }
   }
 
   let preferenceBlock = "";
@@ -171,7 +176,13 @@ export async function buildBeforeAgentStartResult(
   const forensicsInjection = !injection ? buildForensicsContextInjection(process.cwd(), event.prompt) : null;
 
   const worktreeBlock = buildWorktreeContextBlock();
-  const fullSystem = `${event.systemPrompt}\n\n[SYSTEM CONTEXT — GSD]\n\n${systemContent}${preferenceBlock}${knowledgeBlock}${codebaseBlock}${memoryBlock}${newSkillsBlock}${worktreeBlock}`;
+
+  const subagentModelConfig = resolveModelWithFallbacksForUnit("subagent");
+  const subagentModelBlock = subagentModelConfig
+    ? `\n\n## Subagent Model\n\nWhen spawning subagents via the \`subagent\` tool, always pass \`model: "${subagentModelConfig.primary}"\` in the tool call parameters. Never omit this — always specify it explicitly.`
+    : "";
+
+  const fullSystem = `${event.systemPrompt}\n\n[SYSTEM CONTEXT — GSD]\n\n${systemContent}${preferenceBlock}${knowledgeBlock}${codebaseBlock}${memoryBlock}${newSkillsBlock}${worktreeBlock}${subagentModelBlock}`;
 
   stopContextTimer({
     systemPromptSize: fullSystem.length,
@@ -289,6 +300,11 @@ function buildWorktreeContextBlock(): string {
 const RESUME_INTENT_PATTERNS = /^(continue|resume|ok|go|go ahead|proceed|keep going|carry on|next|yes|yeah|yep|sure|do it|let's go|pick up where you left off)$/;
 
 async function buildGuidedExecuteContextInjection(prompt: string, basePath: string): Promise<string | null> {
+  const ensureStateDbOpen = async () => {
+    const { ensureDbOpen } = await import("./dynamic-tools.js");
+    await ensureDbOpen();
+  };
+
   const executeMatch = prompt.match(/Execute the next task:\s+(T\d+)\s+\("([^"]+)"\)\s+in slice\s+(S\d+)\s+of milestone\s+(M\d+(?:-[a-z0-9]{6})?)/i);
   if (executeMatch) {
     const [, taskId, taskTitle, sliceId, milestoneId] = executeMatch;
@@ -298,6 +314,7 @@ async function buildGuidedExecuteContextInjection(prompt: string, basePath: stri
   const resumeMatch = prompt.match(/Resume interrupted work\.[\s\S]*?slice\s+(S\d+)\s+of milestone\s+(M\d+(?:-[a-z0-9]{6})?)/i);
   if (resumeMatch) {
     const [, sliceId, milestoneId] = resumeMatch;
+    await ensureStateDbOpen();
     const state = await deriveState(basePath);
     if (state.activeMilestone?.id === milestoneId && state.activeSlice?.id === sliceId && state.activeTask) {
       return buildTaskExecutionContextInjection(basePath, milestoneId, sliceId, state.activeTask.id, state.activeTask.title);
@@ -313,6 +330,7 @@ async function buildGuidedExecuteContextInjection(prompt: string, basePath: stri
   // replanning, gate evaluation, or other non-execution phases.
   const trimmed = prompt.trim().toLowerCase().replace(/[.!?,]+$/g, "");
   if (RESUME_INTENT_PATTERNS.test(trimmed)) {
+    await ensureStateDbOpen();
     const state = await deriveState(basePath);
     if (state.phase === "executing" && state.activeTask && state.activeMilestone && state.activeSlice) {
       return buildTaskExecutionContextInjection(
