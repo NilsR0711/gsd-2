@@ -58,14 +58,14 @@ describe("index.ts bootstrap isolation", () => {
     );
   });
 
-  test("writes to stderr on bootstrap failure", () => {
+  test("logs warning on bootstrap failure via workflow-logger", () => {
     assert.ok(
-      indexSrc.includes("process.stderr.write"),
-      "must write to stderr when bootstrap fails",
+      indexSrc.includes("logWarning"),
+      "must use logWarning when bootstrap fails",
     );
     assert.ok(
-      indexSrc.includes("[gsd] Extension setup partially failed"),
-      "stderr message must indicate partial failure with /gsd still available",
+      indexSrc.includes("Extension setup partially failed"),
+      "warning message must indicate partial failure with /gsd still available",
     );
   });
 });
@@ -141,10 +141,14 @@ describe("register-extension.ts defensive registration", () => {
     );
   });
 
-  test("writes to stderr when a non-critical registration fails", () => {
+  test("logs warning when a non-critical registration fails", () => {
     assert.ok(
-      registerExtSrc.includes("[gsd] Failed to register"),
-      "must write descriptive error to stderr for individual registration failures",
+      registerExtSrc.includes("Failed to register"),
+      "must log descriptive warning for individual registration failures",
+    );
+    assert.ok(
+      registerExtSrc.includes("logWarning"),
+      "must use logWarning from workflow-logger",
     );
   });
 });

@@ -11,6 +11,7 @@ import { registerQueryTools } from "./query-tools.js";
 import { registerHooks } from "./register-hooks.js";
 import { registerShortcuts } from "./register-shortcuts.js";
 import { writeCrashLog } from "./crash-log.js";
+import { logWarning } from "../workflow-logger.js";
 
 export { writeCrashLog } from "./crash-log.js";
 
@@ -86,8 +87,9 @@ export function registerGsdExtension(pi: ExtensionAPI): void {
     try {
       register();
     } catch (err) {
-      process.stderr.write(
-        `[gsd] Failed to register ${name}: ${err instanceof Error ? err.message : String(err)}\n`,
+      logWarning(
+        "bootstrap",
+        `Failed to register ${name}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

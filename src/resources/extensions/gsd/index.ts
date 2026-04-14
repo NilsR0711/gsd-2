@@ -28,8 +28,10 @@ export default async function registerExtension(pi: ExtensionAPI) {
     const { registerGsdExtension } = await import("./bootstrap/register-extension.js");
     registerGsdExtension(pi);
   } catch (err) {
-    process.stderr.write(
-      `[gsd] Extension setup partially failed — /gsd commands are available but shortcuts/tools may be missing: ${err instanceof Error ? err.message : String(err)}\n`,
+    const { logWarning } = await import("./workflow-logger.js");
+    logWarning(
+      "bootstrap",
+      `Extension setup partially failed — /gsd commands are available but shortcuts/tools may be missing: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
