@@ -66,7 +66,7 @@ const AWS_AUTH_ERROR_RE =
  * Returns the best profile name for `aws sso login --profile <name>`.
  * Prefers profiles whose sso_role_name contains "bedrock".
  */
-function detectSsoProfile(): string | undefined {
+export function detectSsoProfile(): string | undefined {
 	const configPath = join(homedir(), ".aws", "config");
 	if (!existsSync(configPath)) return undefined;
 

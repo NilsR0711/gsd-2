@@ -637,3 +637,66 @@ test("PROVIDER_ROUTES includes openai-codex as route for openai (#2922)", async 
     'PROVIDER_ROUTES must include "openai-codex" as a route (#2922)',
   );
 });
+
+// ─── Amazon Bedrock provider checks ──────────────────────────────────────────
+
+test("runProviderChecks reports amazon-bedrock as CLI auth for amazon-bedrock/ prefixed model", () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-prefix-repo-")));
+  mkdirSync(join(repo, ".gsd"), { recursive: true });
+  writeFileSync(
+    join(repo, ".gsd", "PREFERENCES.md"),
+    ["---", "models:", "  execution: amazon-bedrock/claude-sonnet-4-6", "---", ""].join("\n"),
+  );
+  const tmpHome = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-prefix-home-")));
+  withEnv({ HOME: tmpHome }, () => {
+    withCwd(repo, () => {
+      const results = runProviderChecks();
+      const bedrock = results.find(r => r.name === "amazon-bedrock");
+      assert.ok(bedrock, "amazon-bedrock result should exist");
+      assert.equal(bedrock!.status, "ok", "amazon-bedrock uses IAM — must be ok without API key");
+      assert.ok(bedrock!.message.includes("CLI auth"), "should indicate CLI auth");
+    });
+  });
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(tmpHome, { recursive: true, force: true });
+});
+
+test("runProviderChecks resolves amazon. native model IDs to amazon-bedrock", () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-native-repo-")));
+  mkdirSync(join(repo, ".gsd"), { recursive: true });
+  writeFileSync(
+    join(repo, ".gsd", "PREFERENCES.md"),
+    ["---", "models:", "  execution: amazon.nova-pro-v1:0", "---", ""].join("\n"),
+  );
+  const tmpHome = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-native-home-")));
+  withEnv({ HOME: tmpHome }, () => {
+    withCwd(repo, () => {
+      const results = runProviderChecks();
+      const bedrock = results.find(r => r.name === "amazon-bedrock");
+      assert.ok(bedrock, "amazon-bedrock result should exist for amazon.* model IDs");
+      assert.equal(bedrock!.status, "ok", "amazon-bedrock must be ok without API key (uses IAM)");
+    });
+  });
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(tmpHome, { recursive: true, force: true });
+});
+
+test("runProviderChecks resolves us.amazon. cross-region model IDs to amazon-bedrock", () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-crossregion-repo-")));
+  mkdirSync(join(repo, ".gsd"), { recursive: true });
+  writeFileSync(
+    join(repo, ".gsd", "PREFERENCES.md"),
+    ["---", "models:", "  execution: us.amazon.nova-pro-v1:0", "---", ""].join("\n"),
+  );
+  const tmpHome = realpathSync(mkdtempSync(join(tmpdir(), "gsd-providers-bedrock-crossregion-home-")));
+  withEnv({ HOME: tmpHome }, () => {
+    withCwd(repo, () => {
+      const results = runProviderChecks();
+      const bedrock = results.find(r => r.name === "amazon-bedrock");
+      assert.ok(bedrock, "amazon-bedrock result should exist for us.amazon.* cross-region IDs");
+      assert.equal(bedrock!.status, "ok", "amazon-bedrock must be ok without API key (uses IAM)");
+    });
+  });
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(tmpHome, { recursive: true, force: true });
+});

@@ -490,3 +490,35 @@ test("getAllKeyStatuses detects DASHSCOPE_API_KEY for alibaba-dashscope (failure
     if (saved !== undefined) process.env.DASHSCOPE_API_KEY = saved;
   }
 });
+
+// ─── Amazon Bedrock provider ──────────────────────────────────────────────────
+
+test("amazon-bedrock is in PROVIDER_REGISTRY", () => {
+  const provider = findProvider("amazon-bedrock");
+  assert.ok(provider, "amazon-bedrock must be in PROVIDER_REGISTRY");
+  assert.equal(provider.id, "amazon-bedrock");
+  assert.equal(provider.category, "llm");
+  assert.equal(provider.label, "Amazon Bedrock");
+});
+
+test("amazon-bedrock has no envVar — uses IAM/SSO credential chain", () => {
+  const provider = findProvider("amazon-bedrock");
+  assert.ok(provider, "amazon-bedrock must exist");
+  assert.equal(provider.envVar, undefined, "Bedrock uses IAM auth — no API key env var");
+});
+
+test("getAllKeyStatuses includes amazon-bedrock", () => {
+  const auth = makeAuth();
+  const statuses = getAllKeyStatuses(auth);
+  const found = statuses.find((s) => s.provider.id === "amazon-bedrock");
+  assert.ok(found, "getAllKeyStatuses must include amazon-bedrock");
+});
+
+test("amazon-bedrock shows unconfigured (no API key) — IAM handles auth", () => {
+  const auth = makeAuth();
+  const statuses = getAllKeyStatuses(auth);
+  const found = statuses.find((s) => s.provider.id === "amazon-bedrock");
+  assert.ok(found, "amazon-bedrock must exist in statuses");
+  assert.equal(found.configured, false);
+  assert.equal(found.source, "none");
+});
