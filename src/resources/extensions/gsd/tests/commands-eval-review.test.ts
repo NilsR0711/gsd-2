@@ -12,11 +12,27 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
+// ── Mock ctx helper ───────────────────────────────────────────────────────────
+
+function createMockCtx() {
+  const notifications: Array<{ msg: string; level: string }> = [];
+  return {
+    notifications,
+    ui: {
+      notify(msg: string, level: string) { notifications.push({ msg, level }); },
+      setStatus() {},
+      setWidget() {},
+      setFooter() {},
+    },
+  };
+}
+
 import {
   parseEvalReviewArgs,
   detectEvalReviewState,
   buildEvalReviewOutputPath,
   buildEvalReviewContext,
+  handleEvalReview,
   type EvalReviewState,
 } from "../commands-eval-review.ts";
 
@@ -65,6 +81,25 @@ describe("parseEvalReviewArgs", () => {
   test("--force only → sliceId null, force true", () => {
     const result = parseEvalReviewArgs("--force");
     assert.equal(result.sliceId, null);
+    assert.equal(result.force, true);
+  });
+
+  test("--show only → sliceId null, show true", () => {
+    const result = parseEvalReviewArgs("--show");
+    assert.equal(result.sliceId, null);
+    assert.equal(result.show, true);
+  });
+
+  test("--show with slice ID → sliceId set, show true", () => {
+    const result = parseEvalReviewArgs("--show S01");
+    assert.equal(result.sliceId, "S01");
+    assert.equal(result.show, true);
+  });
+
+  test("--show --force with slice ID → sliceId set, show true, force true", () => {
+    const result = parseEvalReviewArgs("--show --force S02");
+    assert.equal(result.sliceId, "S02");
+    assert.equal(result.show, true);
     assert.equal(result.force, true);
   });
 });
@@ -126,9 +161,8 @@ describe("detectEvalReviewState", () => {
 
   test("sliceDir is null when milestone does not exist", () => {
     const result = detectEvalReviewState(tmpBase, "M999", "S99");
-    // sliceDir may or may not be set depending on implementation,
-    // but state must be no-summary
     assert.equal(result.state, "no-summary");
+    assert.equal(result.sliceDir, null);
   });
 });
 
@@ -177,6 +211,18 @@ describe("buildEvalReviewContext", () => {
     assert.equal(ctx.summary, summaryContent);
   });
 
+  test("state no-summary: spec is null, summary is fallback string", () => {
+    const state: EvalReviewState = {
+      state: "no-summary",
+      summaryPath: null,
+      specPath: null,
+      sliceDir: null,
+    };
+    const result = buildEvalReviewContext(state);
+    assert.equal(result.spec, null);
+    assert.equal(result.summary, "(no summary available)");
+  });
+
   test("state full: spec contains AI-SPEC content, summary contains SUMMARY content", () => {
     const sliceDir = createSliceDir(tmpBase, "M001", "S01");
     const summaryContent = "# Summary\n\nSummary here.";
@@ -196,5 +242,47 @@ describe("buildEvalReviewContext", () => {
     const ctx = buildEvalReviewContext(state);
     assert.equal(ctx.spec, specContent);
     assert.equal(ctx.summary, summaryContent);
+  });
+});
+
+// ── handleEvalReview — guard paths ────────────────────────────────────────────
+
+describe("handleEvalReview — guard paths", () => {
+  test("no active milestone → warning notification", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), `gsd-handler-test-${randomBytes(4).toString("hex")}-`));
+    const origCwd = process.cwd();
+    try {
+      // Empty directory → deriveState finds no milestone
+      process.chdir(tmp);
+      const ctx = createMockCtx();
+      const mockPi = { sendMessage: () => {} } as any;
+      await handleEvalReview("", ctx as any, mockPi);
+      assert.ok(ctx.notifications.some(n => n.level === "warning"));
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("--show with no existing EVAL-REVIEW file notifies warning", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), `gsd-handler-test-${randomBytes(4).toString("hex")}-`));
+    const origCwd = process.cwd();
+    try {
+      // Create minimal GSD structure: milestone + slice with SUMMARY so deriveState can find it
+      const sliceDir = join(tmp, ".gsd", "milestones", "M001", "slices", "S01");
+      mkdirSync(sliceDir, { recursive: true });
+      writeFileSync(join(sliceDir, "S01-SUMMARY.md"), "# Summary\n\nContent.", "utf-8");
+      // Write milestone registry so deriveState recognises M001 as active
+      const milestoneDir = join(tmp, ".gsd", "milestones", "M001");
+      writeFileSync(join(milestoneDir, "ROADMAP.md"), "# M001 Roadmap", "utf-8");
+      process.chdir(tmp);
+      const ctx = createMockCtx();
+      const mockPi = { sendMessage: () => {} } as any;
+      await handleEvalReview("--show S01", ctx as any, mockPi);
+      assert.ok(ctx.notifications.some(n => n.level === "warning" && n.msg.includes("No EVAL-REVIEW")));
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
