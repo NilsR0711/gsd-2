@@ -12,6 +12,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
 
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { resolveFile, resolveMilestonePath } from "./paths.js";
@@ -114,7 +115,7 @@ If no external CLI is available, skip to Step 4 and write a self-review instead.
 
 ## Step 2 — Build the review prompt
 
-Write the following prompt to a temp file at \`/tmp/gsd-review-prompt-${ctx.milestoneId}.md\`:
+Write the following prompt to a temp file at \`${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md\`:
 
 \`\`\`
 # Cross-AI Plan Review Request
@@ -161,27 +162,27 @@ For each available CLI (skip your own):
 
 **Gemini** (recommended model: gemini-2.0-flash — fast, strong reasoning):
 \`\`\`bash
-cat /tmp/gsd-review-prompt-${ctx.milestoneId}.md | gemini -m gemini-2.0-flash -p - 2>/dev/null > /tmp/gsd-review-gemini-${ctx.milestoneId}.md
+cat ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md | gemini -m gemini-2.0-flash -p - 2>/dev/null > ${tmpdir()}/gsd-review-gemini-${ctx.milestoneId}.md
 \`\`\`
 
 **Codex** (recommended model: o4-mini — lighter reasoning, sufficient for review):
 \`\`\`bash
-cat /tmp/gsd-review-prompt-${ctx.milestoneId}.md | codex exec --model o4-mini --skip-git-repo-check - 2>/dev/null > /tmp/gsd-review-codex-${ctx.milestoneId}.md
+cat ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md | codex exec --model o4-mini --skip-git-repo-check - 2>/dev/null > ${tmpdir()}/gsd-review-codex-${ctx.milestoneId}.md
 \`\`\`
 
 **OpenCode** (uses its configured default model):
 \`\`\`bash
-cat /tmp/gsd-review-prompt-${ctx.milestoneId}.md | opencode run - 2>/dev/null > /tmp/gsd-review-opencode-${ctx.milestoneId}.md
+cat ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md | opencode run - 2>/dev/null > ${tmpdir()}/gsd-review-opencode-${ctx.milestoneId}.md
 \`\`\`
 
 **Qwen** (uses its configured default model):
 \`\`\`bash
-cat /tmp/gsd-review-prompt-${ctx.milestoneId}.md | qwen - 2>/dev/null > /tmp/gsd-review-qwen-${ctx.milestoneId}.md
+cat ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md | qwen - 2>/dev/null > ${tmpdir()}/gsd-review-qwen-${ctx.milestoneId}.md
 \`\`\`
 
 **Cursor** (uses its configured default model):
 \`\`\`bash
-cat /tmp/gsd-review-prompt-${ctx.milestoneId}.md | cursor agent -p --mode ask --trust 2>/dev/null > /tmp/gsd-review-cursor-${ctx.milestoneId}.md
+cat ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md | cursor agent -p --mode ask --trust 2>/dev/null > ${tmpdir()}/gsd-review-cursor-${ctx.milestoneId}.md
 \`\`\`
 
 If a CLI fails or returns empty output, log a note and continue with the remaining CLIs.
@@ -232,7 +233,7 @@ yourself using the prompt from Step 2.
 ## Step 5 — Clean up temp files
 
 \`\`\`bash
-rm -f /tmp/gsd-review-prompt-${ctx.milestoneId}.md /tmp/gsd-review-*-${ctx.milestoneId}.md
+rm -f ${tmpdir()}/gsd-review-prompt-${ctx.milestoneId}.md ${tmpdir()}/gsd-review-*-${ctx.milestoneId}.md
 \`\`\`
 
 ---
