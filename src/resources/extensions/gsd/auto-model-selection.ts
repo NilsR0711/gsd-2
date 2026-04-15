@@ -10,7 +10,7 @@ import type { ExtensionAPI, ExtensionContext } from "@gsd/pi-coding-agent";
 import type { GSDPreferences } from "./preferences.js";
 import { resolveModelWithFallbacksForUnit, resolveDynamicRoutingConfig } from "./preferences.js";
 import type { ComplexityTier } from "./complexity-classifier.js";
-import { classifyUnitComplexity, tierLabel } from "./complexity-classifier.js";
+import { classifyUnitComplexity, extractTaskMetadata, tierLabel } from "./complexity-classifier.js";
 import { resolveModelForComplexity, escalateTier, getEligibleModels, loadCapabilityOverrides, adjustToolSet, filterToolsForProvider } from "./model-router.js";
 import { getLedger, getProjectTotals } from "./metrics.js";
 import { unitPhaseLabel } from "./auto-dashboard.js";
@@ -120,6 +120,10 @@ export async function selectAndApplyModel(
     let routingTierLabel = "";
     let routingEligibleModels = availableModels;
 
+    const taskMetadataForPolicy = unitType === "execute-task"
+      ? extractTaskMetadata(unitId, basePath)
+      : undefined;
+
     if (uokFlags.modelPolicy) {
       const policy = applyModelPolicyFilter(
         availableModels,
@@ -128,6 +132,7 @@ export async function selectAndApplyModel(
           traceId: modelPolicyTraceId,
           turnId: modelPolicyTurnId,
           unitType,
+          taskMetadata: taskMetadataForPolicy,
           currentProvider: ctx.model?.provider,
           allowCrossProvider: routingConfig.cross_provider !== false,
           requiredTools: pi.getActiveTools(),
@@ -182,7 +187,13 @@ export async function selectAndApplyModel(
       const shouldClassify = !isHook || routingConfig.hooks !== false;
 
       if (shouldClassify) {
-        let classification = classifyUnitComplexity(unitType, unitId, basePath, budgetPct);
+        let classification = classifyUnitComplexity(
+          unitType,
+          unitId,
+          basePath,
+          budgetPct,
+          taskMetadataForPolicy,
+        );
         const availableModelIds = routingEligibleModels.map(m => m.id);
 
         // Escalate tier on retry when escalate_on_failure is enabled (default: true)
@@ -293,7 +304,8 @@ export async function selectAndApplyModel(
     let attemptedPolicyEligible = false;
 
     for (const modelId of modelsToTry) {
-      const model = resolveModelId(modelId, availableModels, ctx.model?.provider);
+      const resolutionPool = uokFlags.modelPolicy ? routingEligibleModels : availableModels;
+      const model = resolveModelId(modelId, resolutionPool, ctx.model?.provider);
 
       if (!model) {
         if (verbose) ctx.ui.notify(`Model ${modelId} not found, trying fallback.`, "info");
