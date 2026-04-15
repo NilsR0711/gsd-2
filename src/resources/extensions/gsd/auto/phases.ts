@@ -12,6 +12,7 @@ import { importExtensionModule, type ExtensionAPI, type ExtensionContext } from 
 import type { AutoSession, SidecarItem } from "./session.js";
 import type { LoopDeps } from "./loop-deps.js";
 import type { PostUnitContext, PreVerificationOpts } from "../auto-post-unit.js";
+import type { Phase } from "../types.js";
 import {
   MAX_RECOVERY_CHARS,
   BUDGET_THRESHOLDS,
@@ -78,6 +79,17 @@ export function _resolveDispatchGuardBasePath(
   s: Pick<AutoSession, "originalBasePath" | "basePath">,
 ): string {
   return s.originalBasePath || s.basePath;
+}
+
+const PLAN_V2_GATE_PHASES: ReadonlySet<Phase> = new Set([
+  "executing",
+  "summarizing",
+  "validating-milestone",
+  "completing-milestone",
+]);
+
+function shouldRunPlanV2Gate(phase: Phase): boolean {
+  return PLAN_V2_GATE_PHASES.has(phase);
 }
 
 /**
@@ -325,7 +337,7 @@ export async function runPreDispatch(
 
   // Derive state
   let state = await deps.deriveState(s.basePath);
-  if (prefs?.uok?.plan_v2?.enabled) {
+  if (prefs?.uok?.plan_v2?.enabled && shouldRunPlanV2Gate(state.phase)) {
     const compiled = ensurePlanV2Graph(s.basePath, state);
     if (!compiled.ok) {
       const reason = compiled.reason ?? "Plan v2 compilation failed";
