@@ -1241,6 +1241,8 @@ export async function runUnitPhase(
   // per-unit. Without this, the module-level _buffer accumulates across every
   // unit in the same Node process (see workflow-logger.ts module header).
   _resetLogs();
+  const dispatchKey = `${unitType}/${unitId}`;
+  s.unitDispatchCount.set(dispatchKey, (s.unitDispatchCount.get(dispatchKey) ?? 0) + 1);
   s.currentUnit = { type: unitType, id: unitId, startedAt: Date.now() };
   s.lastGitActionFailure = null;
   s.lastGitActionStatus = null;
@@ -1307,7 +1309,7 @@ export async function runUnitPhase(
         : s.pendingCrashRecovery;
     finalPrompt = `${capped}\n\n---\n\n${finalPrompt}`;
     s.pendingCrashRecovery = null;
-  } else if ((s.unitDispatchCount.get(`${unitType}/${unitId}`) ?? 0) > 1) {
+  } else if ((s.unitDispatchCount.get(dispatchKey) ?? 0) > 1) {
     const diagnostic = deps.getDeepDiagnostic(s.basePath);
     if (diagnostic) {
       const cappedDiag =
@@ -1666,7 +1668,7 @@ export async function runUnitPhase(
     skipArtifactVerification ||
     verifyExpectedArtifact(unitType, unitId, s.basePath);
   if (artifactVerified) {
-    s.unitDispatchCount.delete(`${unitType}/${unitId}`);
+    s.unitDispatchCount.delete(dispatchKey);
     s.unitRecoveryCount.delete(`${unitType}/${unitId}`);
   }
 
