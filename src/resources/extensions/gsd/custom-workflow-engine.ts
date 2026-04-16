@@ -95,6 +95,18 @@ export class CustomWorkflowEngine implements WorkflowEngine {
 
     return await withFileLock(graphPath, () => {
       let graph = readGraph(this.runDir);
+      const active = graph.steps.find((step) => step.status === "active");
+      if (active) {
+        return {
+          action: "dispatch" as const,
+          step: {
+            unitType: "custom-step",
+            unitId: `${graph.metadata.name}/${active.id}`,
+            prompt: injectContext(this.runDir, active.id, active.prompt),
+          },
+        };
+      }
+
       let next = getNextPendingStep(graph);
 
       if (!next) {

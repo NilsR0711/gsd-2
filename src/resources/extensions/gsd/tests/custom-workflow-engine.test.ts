@@ -155,6 +155,28 @@ describe("CustomWorkflowEngine.resolveDispatch", () => {
     assert.equal(graph.steps[1].status, "pending");
   });
 
+  it("reuses an already active step on a subsequent dispatch before reconcile", async () => {
+    const { engine } = setupEngine([
+      makeStep({ id: "step-1", prompt: "Do the first thing" }),
+      makeStep({ id: "step-2", dependsOn: ["step-1"] }),
+    ], "my-workflow");
+
+    let state = await engine.deriveState("/unused");
+    const firstDispatch = await engine.resolveDispatch(state, { basePath: "/unused" });
+    assert.equal(firstDispatch.action, "dispatch");
+    if (firstDispatch.action === "dispatch") {
+      assert.equal(firstDispatch.step.unitId, "my-workflow/step-1");
+    }
+
+    state = await engine.deriveState("/unused");
+    const secondDispatch = await engine.resolveDispatch(state, { basePath: "/unused" });
+    assert.equal(secondDispatch.action, "dispatch");
+    if (secondDispatch.action === "dispatch") {
+      assert.equal(secondDispatch.step.unitId, "my-workflow/step-1");
+      assert.equal(secondDispatch.step.prompt, "Do the first thing");
+    }
+  });
+
   it("returns stop when all steps are complete", async () => {
     const { engine } = setupEngine([
       makeStep({ id: "a", status: "complete" }),
