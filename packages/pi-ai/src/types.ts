@@ -1,3 +1,7 @@
+import type { AssistantMessageEventStream } from "./utils/event-stream.js";
+
+export type { AssistantMessageEventStream } from "./utils/event-stream.js";
+
 export type KnownApi =
 	| "openai-completions"
 	| "mistral-conversations"
@@ -115,12 +119,6 @@ export interface SimpleStreamOptions extends StreamOptions {
 	reasoning?: ThinkingLevel;
 	/** Custom token budgets for thinking levels (token-based providers only) */
 	thinkingBudgets?: ThinkingBudgets;
-}
-
-export interface AssistantMessageEventStream extends AsyncIterable<AssistantMessageEvent> {
-	push(event: AssistantMessageEvent): void;
-	end(result?: AssistantMessage): void;
-	result(): Promise<AssistantMessage>;
 }
 
 // Generic StreamFunction with typed options
