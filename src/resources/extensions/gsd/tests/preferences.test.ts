@@ -12,12 +12,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   validatePreferences,
   applyModeDefaults,
   getIsolationMode,
+  getGlobalGSDPreferencesPath,
+  getProjectGSDPreferencesPath,
   loadEffectiveGSDPreferences,
+  loadGlobalGSDPreferences,
+  loadProjectGSDPreferences,
   parsePreferencesMarkdown,
   renderPreferencesForSystemPrompt,
   _resetParseWarningFlag,
@@ -593,6 +597,70 @@ test("loadEffectiveGSDPreferences preserves experimental prefs across global+pro
     assert.notEqual(loaded, null);
     assert.equal(loaded!.preferences.experimental?.rtk, true);
     assert.equal(loaded!.preferences.git?.isolation, "none");
+  } finally {
+    process.chdir(originalCwd);
+    if (originalGsdHome === undefined) delete process.env.GSD_HOME;
+    else process.env.GSD_HOME = originalGsdHome;
+    rmSync(tempProject, { recursive: true, force: true });
+    rmSync(tempGsdHome, { recursive: true, force: true });
+  }
+});
+
+test("preferences paths use canonical uppercase filenames", () => {
+  const originalCwd = process.cwd();
+  const originalGsdHome = process.env.GSD_HOME;
+  const tempProject = mkdtempSync(join(tmpdir(), "gsd-prefs-canonical-project-"));
+  const tempGsdHome = mkdtempSync(join(tmpdir(), "gsd-prefs-canonical-home-"));
+
+  try {
+    mkdirSync(join(tempProject, ".gsd"), { recursive: true });
+    process.env.GSD_HOME = tempGsdHome;
+    process.chdir(tempProject);
+
+    assert.equal(basename(getGlobalGSDPreferencesPath()), "PREFERENCES.md");
+    assert.ok(
+      getProjectGSDPreferencesPath().endsWith("/.gsd/PREFERENCES.md")
+        || getProjectGSDPreferencesPath().endsWith("\\.gsd\\PREFERENCES.md"),
+      "project preferences path should use .gsd/PREFERENCES.md",
+    );
+  } finally {
+    process.chdir(originalCwd);
+    if (originalGsdHome === undefined) delete process.env.GSD_HOME;
+    else process.env.GSD_HOME = originalGsdHome;
+    rmSync(tempProject, { recursive: true, force: true });
+    rmSync(tempGsdHome, { recursive: true, force: true });
+  }
+});
+
+test("uppercase PREFERENCES.md wins over legacy lowercase preferences.md", () => {
+  const originalCwd = process.cwd();
+  const originalGsdHome = process.env.GSD_HOME;
+  const tempProject = mkdtempSync(join(tmpdir(), "gsd-prefs-priority-project-"));
+  const tempGsdHome = mkdtempSync(join(tmpdir(), "gsd-prefs-priority-home-"));
+
+  try {
+    mkdirSync(join(tempProject, ".gsd"), { recursive: true });
+
+    writeFileSync(join(tempGsdHome, "preferences.md"), "---\nversion: 1\nmode: solo\n---\n", "utf-8");
+    writeFileSync(join(tempGsdHome, "PREFERENCES.md"), "---\nversion: 1\nmode: team\n---\n", "utf-8");
+    writeFileSync(join(tempProject, ".gsd", "preferences.md"), "---\nversion: 1\nlanguage: German\n---\n", "utf-8");
+    writeFileSync(join(tempProject, ".gsd", "PREFERENCES.md"), "---\nversion: 1\nlanguage: Japanese\n---\n", "utf-8");
+
+    process.env.GSD_HOME = tempGsdHome;
+    process.chdir(tempProject);
+
+    const globalPrefs = loadGlobalGSDPreferences();
+    const projectPrefs = loadProjectGSDPreferences();
+    assert.notEqual(globalPrefs, null);
+    assert.notEqual(projectPrefs, null);
+    assert.equal(globalPrefs!.preferences.mode, "team");
+    assert.equal(projectPrefs!.preferences.language, "Japanese");
+    assert.equal(basename(globalPrefs!.path), "PREFERENCES.md");
+    assert.ok(
+      projectPrefs!.path.endsWith("/.gsd/PREFERENCES.md")
+        || projectPrefs!.path.endsWith("\\.gsd\\PREFERENCES.md"),
+      "project loader should prefer .gsd/PREFERENCES.md",
+    );
   } finally {
     process.chdir(originalCwd);
     if (originalGsdHome === undefined) delete process.env.GSD_HOME;

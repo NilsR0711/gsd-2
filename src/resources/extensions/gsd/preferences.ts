@@ -102,7 +102,7 @@ function gsdHome(): string {
 }
 
 function globalPreferencesPath(): string {
-  return join(gsdHome(), "preferences.md");
+  return join(gsdHome(), "PREFERENCES.md");
 }
 
 function legacyGlobalPreferencesPath(): string {
@@ -110,15 +110,15 @@ function legacyGlobalPreferencesPath(): string {
 }
 
 function projectPreferencesPath(): string {
-  return join(gsdRoot(process.cwd()), "preferences.md");
-}
-// Bootstrap in gitignore.ts historically created PREFERENCES.md (uppercase) by mistake.
-// Check uppercase as a fallback so those files aren't silently ignored.
-function globalPreferencesPathUppercase(): string {
-  return join(gsdHome(), "PREFERENCES.md");
-}
-function projectPreferencesPathUppercase(): string {
   return join(gsdRoot(process.cwd()), "PREFERENCES.md");
+}
+// Legacy lowercase files can still exist in older projects. Keep them as a
+// compatibility-only fallback, but route new reads/writes through PREFERENCES.md.
+function legacyGlobalPreferencesPathLowercase(): string {
+  return join(gsdHome(), "preferences.md");
+}
+function legacyProjectPreferencesPathLowercase(): string {
+  return join(gsdRoot(process.cwd()), "preferences.md");
 }
 
 export function getGlobalGSDPreferencesPath(): string {
@@ -137,13 +137,13 @@ export function getProjectGSDPreferencesPath(): string {
 
 export function loadGlobalGSDPreferences(): LoadedGSDPreferences | null {
   return loadPreferencesFile(globalPreferencesPath(), "global")
-    ?? loadPreferencesFile(globalPreferencesPathUppercase(), "global")
+    ?? loadPreferencesFile(legacyGlobalPreferencesPathLowercase(), "global")
     ?? loadPreferencesFile(legacyGlobalPreferencesPath(), "global");
 }
 
 export function loadProjectGSDPreferences(): LoadedGSDPreferences | null {
   return loadPreferencesFile(projectPreferencesPath(), "project")
-    ?? loadPreferencesFile(projectPreferencesPathUppercase(), "project");
+    ?? loadPreferencesFile(legacyProjectPreferencesPathLowercase(), "project");
 }
 
 export function loadEffectiveGSDPreferences(): LoadedGSDPreferences | null {
