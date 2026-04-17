@@ -638,7 +638,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
           id: Type.String({ description: "Short id (e.g. 'A', 'B') used by /gsd escalate resolve." }),
           label: Type.String({ description: "One-line label." }),
           tradeoffs: Type.String({ description: "1-2 sentences on the tradeoffs of this option." }),
-        }), { description: "2–4 options the user can choose between." }),
+        }), { minItems: 2, maxItems: 4, description: "2–4 options the user can choose between." }),
         recommendation: Type.String({ description: "Option id the executor recommends." }),
         recommendationRationale: Type.String({ description: "Why the recommendation — 1–2 sentences." }),
         continueWithDefault: Type.Boolean({

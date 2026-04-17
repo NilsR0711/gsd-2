@@ -327,12 +327,16 @@ export async function handleCompleteTask(
         });
         writeEscalationArtifact(basePath, artifact);
       } catch (escalationErr) {
-        // Non-fatal: the task itself completed successfully. Surface the
-        // escalation failure so the user knows why no pause happened.
-        logWarning(
-          "tool",
-          `complete-task escalation write failed for ${params.milestoneId}/${params.sliceId}/${params.taskId}: ${(escalationErr as Error).message}`,
-        );
+        const msg = `complete-task escalation write failed for ${params.milestoneId}/${params.sliceId}/${params.taskId}: ${(escalationErr as Error).message}`;
+        logWarning("tool", msg);
+        // For pause-required escalations (continueWithDefault=false), the
+        // loop MUST pause — so if we can't write the artifact we must surface
+        // the failure instead of silently allowing the task to "complete" and
+        // the loop to advance. For fire-and-correct (continueWithDefault=true)
+        // the task proceeds and the warning is enough.
+        if (params.escalation.continueWithDefault === false) {
+          return { error: msg };
+        }
       }
     } else {
       logWarning(

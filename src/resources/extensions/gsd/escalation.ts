@@ -51,6 +51,19 @@ export function buildEscalationArtifact(params: {
   recommendationRationale: string;
   continueWithDefault: boolean;
 }): EscalationArtifact {
+  // Server-side validation — the MCP Type schema already constrains shape,
+  // but we belt-and-suspenders here so non-MCP callers can't construct
+  // malformed artifacts. These checks match readEscalationArtifact's.
+  if (!Array.isArray(params.options) || params.options.length < 2 || params.options.length > 4) {
+    throw new Error(`escalation.options must have between 2 and 4 entries (got ${params.options?.length ?? 0})`);
+  }
+  const optionIds = new Set(params.options.map((o) => o.id));
+  if (optionIds.size !== params.options.length) {
+    throw new Error("escalation.options must have unique ids");
+  }
+  if (!optionIds.has(params.recommendation)) {
+    throw new Error(`escalation.recommendation "${params.recommendation}" is not one of the option ids: ${[...optionIds].join(", ")}`);
+  }
   return {
     version: 1,
     taskId: params.taskId,
@@ -108,9 +121,29 @@ export function readEscalationArtifact(path: string): EscalationArtifact | null 
     const raw = readFileSync(path, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
-    const art = parsed as EscalationArtifact;
-    if (art.version !== 1 || !art.taskId || !art.question) return null;
-    return art;
+    const art = parsed as Partial<EscalationArtifact>;
+    // Full schema validation — invalid artifacts return null so downstream
+    // code (formatEscalationForDisplay, resolveEscalation, carry-forward)
+    // never crashes on malformed input.
+    if (art.version !== 1) return null;
+    if (typeof art.taskId !== "string" || art.taskId.length === 0) return null;
+    if (typeof art.sliceId !== "string" || art.sliceId.length === 0) return null;
+    if (typeof art.milestoneId !== "string" || art.milestoneId.length === 0) return null;
+    if (typeof art.question !== "string" || art.question.length === 0) return null;
+    if (!Array.isArray(art.options) || art.options.length === 0) return null;
+    for (const opt of art.options) {
+      if (!opt || typeof opt !== "object") return null;
+      const o = opt as Partial<EscalationOption>;
+      if (typeof o.id !== "string" || o.id.length === 0) return null;
+      if (typeof o.label !== "string") return null;
+      if (typeof o.tradeoffs !== "string") return null;
+    }
+    if (typeof art.recommendation !== "string") return null;
+    // Recommendation must reference a real option id.
+    if (!art.options.some((o) => o.id === art.recommendation)) return null;
+    if (typeof art.continueWithDefault !== "boolean") return null;
+    if (typeof art.createdAt !== "string") return null;
+    return art as EscalationArtifact;
   } catch {
     return null;
   }
@@ -240,20 +273,20 @@ export function claimOverrideForInjection(
 ): { injectionBlock: string; sourceTaskId: string } | null {
   const unapplied = findUnappliedEscalationOverride(milestoneId, sliceId);
   if (!unapplied) return null;
-  const claimed = claimEscalationOverride(milestoneId, sliceId, unapplied.taskId);
-  if (!claimed) return null; // lost the race
+  // Validate artifact BEFORE claiming so a missing/malformed file doesn't
+  // mark the DB row as applied (which would silently swallow the override
+  // forever). If the artifact is bad, return null without touching the row.
   const art = readEscalationArtifact(unapplied.artifactPath);
-  // We've already claimed the override in the DB but the file is missing or
-  // mid-resolution. Surface a warning so operators can unstick the row if
-  // needed — the override is effectively orphaned until a doctor/reset runs.
   if (!art) {
     logWarning(
       "tool",
-      `escalation: claim succeeded but artifact missing/malformed at ${unapplied.artifactPath} (task ${unapplied.taskId}); override will not be injected`,
+      `escalation: artifact missing/malformed at ${unapplied.artifactPath} (task ${unapplied.taskId}); skipping without claim — operator should resolve or remove the row`,
     );
     return null;
   }
   if (!art.respondedAt || !art.userChoice) return null;
+  const claimed = claimEscalationOverride(milestoneId, sliceId, unapplied.taskId);
+  if (!claimed) return null; // lost the race
   void basePath;
   return {
     injectionBlock: formatOverrideBlock(art),

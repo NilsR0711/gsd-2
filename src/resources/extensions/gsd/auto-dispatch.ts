@@ -190,6 +190,25 @@ export function isVerificationNotApplicable(value: string): boolean {
 
 export const DISPATCH_RULES: DispatchRule[] = [
   {
+    // ADR-011 Phase 2: pause-for-escalation must evaluate FIRST so phase-
+    // agnostic rules (rewrite-docs gate, UAT checks, reassess) cannot bypass
+    // the user's pending decision. Only fires for continueWithDefault=false
+    // escalations (those set escalation_pending=1); awaiting-review artifacts
+    // never enter the 'escalating-task' phase.
+    name: "escalating-task → pause-for-escalation",
+    match: async ({ state, mid }) => {
+      if (state.phase !== "escalating-task") return null;
+      if (!state.activeSlice) return missingSliceStop(mid, state.phase);
+      return {
+        action: "stop",
+        reason:
+          state.nextAction ||
+          `${mid}: task escalation awaits user resolution. Run /gsd escalate list to see pending items.`,
+        level: "info",
+      };
+    },
+  },
+  {
     name: "rewrite-docs (override gate)",
     match: async ({ mid, midTitle, state, basePath, session }) => {
       const pendingOverrides = await loadActiveOverrides(basePath);
@@ -552,25 +571,6 @@ export const DISPATCH_RULES: DispatchRule[] = [
           sTitle,
           basePath,
         ),
-      };
-    },
-  },
-  {
-    // ADR-011 Phase 2: pause auto-mode until the user resolves a pending
-    // escalation via `/gsd escalate resolve <taskId> <choice>`. Only fires
-    // for escalations with `continueWithDefault: false` — the
-    // `continueWithDefault: true` path writes an artifact without flipping
-    // `escalation_pending`, so it never enters this phase.
-    name: "escalating-task → pause-for-escalation",
-    match: async ({ state, mid }) => {
-      if (state.phase !== "escalating-task") return null;
-      if (!state.activeSlice) return missingSliceStop(mid, state.phase);
-      return {
-        action: "stop",
-        reason:
-          state.nextAction ||
-          `${mid}: task escalation awaits user resolution. Run /gsd escalate list to see pending items.`,
-        level: "info",
       };
     },
   },

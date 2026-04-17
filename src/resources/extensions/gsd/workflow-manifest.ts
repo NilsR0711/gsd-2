@@ -164,6 +164,7 @@ export function snapshotState(): StateManifest {
     rationale: (r["rationale"] as string) ?? "",
     revisable: (r["revisable"] as string) ?? "",
     made_by: (r["made_by"] as string as Decision["made_by"]) ?? "agent",
+    source: (r["source"] as string) ?? "discussion",
     superseded_by: (r["superseded_by"] as string) ?? null,
   }));
 

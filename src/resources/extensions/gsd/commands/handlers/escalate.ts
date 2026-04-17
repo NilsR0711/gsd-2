@@ -89,13 +89,38 @@ export async function handleEscalateCommand(
     return;
   }
 
-  // ── show <taskId> ───────────────────────────────────────────────────────
+  // Parse a possibly-slice-qualified task id: "Sxx/Tyy" or plain "Tyy".
+  // Returns { sliceId?, taskId }.
+  const parseTaskRef = (ref: string): { sliceId?: string; taskId: string } => {
+    const slash = ref.indexOf("/");
+    if (slash > 0) {
+      return { sliceId: ref.slice(0, slash), taskId: ref.slice(slash + 1) };
+    }
+    return { taskId: ref };
+  };
+
+  // Resolve a task ref to a single row, surfacing ambiguity when a bare task
+  // id matches more than one slice.
+  const locateRow = (ref: string): ReturnType<typeof listAllEscalations>[number] | "ambiguous" | "not-found" => {
+    const { sliceId, taskId } = parseTaskRef(ref);
+    const rows = listAllEscalations(milestoneId).filter(
+      (t) => t.id === taskId && (sliceId === undefined || t.slice_id === sliceId),
+    );
+    if (rows.length === 0) return "not-found";
+    if (rows.length > 1) return "ambiguous";
+    return rows[0]!;
+  };
+
+  // ── show <taskRef> ──────────────────────────────────────────────────────
   if (trimmed.startsWith("show ")) {
-    const taskId = trimmed.slice(5).trim();
-    const rows = listAllEscalations(milestoneId).filter((t) => t.id === taskId);
-    const row = rows[0];
-    if (!row || !row.escalation_artifact_path) {
-      ctx.ui.notify(`No escalation found for task ${taskId} in ${milestoneId}.`, "warning");
+    const ref = trimmed.slice(5).trim();
+    const row = locateRow(ref);
+    if (row === "ambiguous") {
+      ctx.ui.notify(`Task ${ref} matches multiple slices. Use Sxx/Tyy format.`, "warning");
+      return;
+    }
+    if (row === "not-found" || !row.escalation_artifact_path) {
+      ctx.ui.notify(`No escalation found for ${ref} in ${milestoneId}.`, "warning");
       return;
     }
     const art = readEscalationArtifact(row.escalation_artifact_path);
@@ -107,24 +132,27 @@ export async function handleEscalateCommand(
     return;
   }
 
-  // ── resolve <taskId> <choice> [rationale...] ────────────────────────────
+  // ── resolve <taskRef> <choice> [rationale...] ───────────────────────────
   if (trimmed.startsWith("resolve ")) {
     const parts = trimmed.slice(8).trim().split(/\s+/);
-    const taskId = parts[0];
+    const ref = parts[0];
     const choice = parts[1];
     const rationale = parts.slice(2).join(" ").trim();
-    if (!taskId || !choice) {
-      ctx.ui.notify("Usage: /gsd escalate resolve <taskId> <choice> [rationale...]", "warning");
+    if (!ref || !choice) {
+      ctx.ui.notify("Usage: /gsd escalate resolve <taskId|Sxx/Tyy> <choice> [rationale...]", "warning");
       return;
     }
 
-    // Locate the slice id — scan the milestone for a matching task.
-    const rows = listAllEscalations(milestoneId).filter((t) => t.id === taskId);
-    const row = rows[0];
-    if (!row) {
-      ctx.ui.notify(`No escalation found for task ${taskId} in ${milestoneId}.`, "warning");
+    const row = locateRow(ref);
+    if (row === "ambiguous") {
+      ctx.ui.notify(`Task ${ref} matches multiple slices. Use Sxx/Tyy format.`, "warning");
       return;
     }
+    if (row === "not-found") {
+      ctx.ui.notify(`No escalation found for ${ref} in ${milestoneId}.`, "warning");
+      return;
+    }
+    const taskId = row.id;
 
     const result = resolveEscalation(basePath, milestoneId, row.slice_id, taskId, choice, rationale);
     invalidateStateCache();

@@ -531,6 +531,9 @@ function initSchema(db: DbAdapter, fileBacked: boolean): void {
     db.exec("CREATE INDEX IF NOT EXISTS idx_turn_git_tx_turn ON turn_git_transactions(trace_id, turn_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_audit_events_trace ON audit_events(trace_id, ts)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_audit_events_turn ON audit_events(trace_id, turn_id, ts)");
+    // ADR-011 Phase 2 — also created by the v17 migration; fresh installs
+    // skip migrations so the index must be created here too.
+    db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_escalation_pending ON tasks(milestone_id, slice_id, escalation_pending)");
 
     db.exec(`CREATE VIEW IF NOT EXISTS active_decisions AS SELECT * FROM decisions WHERE superseded_by IS NULL`);
     db.exec(`CREATE VIEW IF NOT EXISTS active_requirements AS SELECT * FROM requirements WHERE superseded_by IS NULL`);
@@ -3179,14 +3182,16 @@ export function restoreManifest(manifest: StateManifest): void {
       );
     }
 
-    // Restore tasks
+    // Restore tasks (ADR-011 P2: includes blocker_source + escalation_* columns)
     const tkStmt = db.prepare(
       `INSERT INTO tasks (milestone_id, slice_id, id, title, status,
         one_liner, narrative, verification_result, duration, completed_at,
         blocker_discovered, deviations, known_issues, key_files, key_decisions,
         full_summary_md, description, estimate, files, verify,
-        inputs, expected_output, observability_impact, sequence)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        inputs, expected_output, observability_impact, sequence,
+        blocker_source, escalation_pending, escalation_awaiting_review,
+        escalation_artifact_path, escalation_override_applied_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const t of manifest.tasks) {
       tkStmt.run(
@@ -3197,16 +3202,21 @@ export function restoreManifest(manifest: StateManifest): void {
         t.full_summary_md, t.description, t.estimate, JSON.stringify(t.files), t.verify,
         JSON.stringify(t.inputs), JSON.stringify(t.expected_output),
         t.observability_impact, t.sequence,
+        t.blocker_source ?? "",
+        t.escalation_pending ?? 0,
+        t.escalation_awaiting_review ?? 0,
+        t.escalation_artifact_path ?? null,
+        t.escalation_override_applied_at ?? null,
       );
     }
 
-    // Restore decisions
+    // Restore decisions (ADR-011 P2: include source so escalation decisions survive)
     const dcStmt = db.prepare(
-      `INSERT INTO decisions (seq, id, when_context, scope, decision, choice, rationale, revisable, made_by, superseded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO decisions (seq, id, when_context, scope, decision, choice, rationale, revisable, made_by, source, superseded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const d of manifest.decisions) {
-      dcStmt.run(d.seq, d.id, d.when_context, d.scope, d.decision, d.choice, d.rationale, d.revisable, d.made_by, d.superseded_by);
+      dcStmt.run(d.seq, d.id, d.when_context, d.scope, d.decision, d.choice, d.rationale, d.revisable, d.made_by, d.source ?? "discussion", d.superseded_by);
     }
 
     // Restore verification evidence
