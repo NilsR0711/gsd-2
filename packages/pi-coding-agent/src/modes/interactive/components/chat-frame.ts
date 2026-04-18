@@ -76,8 +76,7 @@ export function renderChatFrame(
 				: "assistantMessageText";
 	const bodyLines = (sourceLines.length > 0 ? sourceLines : [""]).map((line) => {
 		const clipped = truncateToWidth(line, contentWidth, "");
-		const tinted = bodyColor ? theme.fg(bodyColor, clipped) : clipped;
-		return border("│ ") + tinted;
+		return border("│ ") + theme.fg(bodyColor, clipped);
 	});
 
 	return [

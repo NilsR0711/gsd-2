@@ -30,8 +30,12 @@ function readGsdState(): GsdState | undefined {
     if (slice) state.slice = slice[1].trim()
     const phase = raw.match(/^\*\*Phase:\*\*\s*(.+)$/m)
     if (phase) state.phase = phase[1].trim()
-    const next = raw.match(/^##\s*Next Action\s*\n+([^\n]+)/m)
-    if (next) state.nextAction = next[1].trim()
+    // Accept both template shapes: inline "**Next Action:** ..." and the
+    // "## Next Action\n<line>" heading format. Prefer the inline match.
+    const nextInline = raw.match(/^\*\*Next Action:\*\*\s*(.+)$/m)
+    const nextHeading = raw.match(/^##\s*Next Action\s*\n+([^\n]+)/m)
+    const nextMatch = nextInline ?? nextHeading
+    if (nextMatch) state.nextAction = nextMatch[1].trim()
     return state
   } catch {
     return undefined

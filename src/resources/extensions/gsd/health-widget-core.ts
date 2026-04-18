@@ -121,10 +121,19 @@ export function buildHealthLines(data: HealthWidgetData, width?: number): string
   const leftVis = leftText.length;
   const rightVis = rightText.length;
 
-  if (!rightText) return [`${prefix}${leftText}`];
-  if (leftVis + 2 + rightVis > innerWidth) {
-    // Fall back to stacked inline when it doesn't fit.
-    return [`${prefix}${leftText}  │  ${rightText}`];
+  if (!rightText) return [`${prefix}${truncateMessage(leftText, innerWidth)}`];
+  const MIN_GAP = 2;
+  if (leftVis + MIN_GAP + rightVis > innerWidth) {
+    // Preserve the left (status + budget) and truncate the right side
+    // (last commit) with an ellipsis so the combined line never exceeds
+    // innerWidth. If even the left alone overflows, clamp it too.
+    const leftRoom = Math.max(1, Math.min(leftVis, innerWidth - MIN_GAP - 1));
+    const clampedLeft = truncateMessage(leftText, leftRoom);
+    const rightRoom = Math.max(0, innerWidth - clampedLeft.length - MIN_GAP);
+    const clampedRight = rightRoom > 0 ? truncateMessage(rightText, rightRoom) : "";
+    if (!clampedRight) return [`${prefix}${clampedLeft}`];
+    const pad = " ".repeat(Math.max(MIN_GAP, innerWidth - clampedLeft.length - clampedRight.length));
+    return [`${prefix}${clampedLeft}${pad}${clampedRight}`];
   }
   const padding = " ".repeat(innerWidth - leftVis - rightVis);
   return [`${prefix}${leftText}${padding}${rightText}`];

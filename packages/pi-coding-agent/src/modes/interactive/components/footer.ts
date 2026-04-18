@@ -152,7 +152,7 @@ export class FooterComponent implements Component {
 			contextPercentValue > 90 ? "error" : contextPercentValue > 70 ? "warning" : "success";
 		const BAR_WIDTH = 8;
 		const filled = contextUsage?.percent !== null
-			? Math.min(BAR_WIDTH, Math.round((contextPercentValue / 100) * BAR_WIDTH))
+			? Math.max(0, Math.min(BAR_WIDTH, Math.round((contextPercentValue / 100) * BAR_WIDTH)))
 			: 0;
 		const bar =
 			theme.fg(barColor, "━".repeat(filled)) +
