@@ -9,6 +9,7 @@ import { loadEcosystemExtensions } from "../ecosystem/loader.js";
 import { registerDbTools } from "./db-tools.js";
 import { registerDynamicTools } from "./dynamic-tools.js";
 import { registerJournalTools } from "./journal-tools.js";
+import { registerMemoryTools } from "./memory-tools.js";
 import { registerQueryTools } from "./query-tools.js";
 import { registerHooks } from "./register-hooks.js";
 import { registerShortcuts } from "./register-shortcuts.js";
@@ -85,6 +86,7 @@ export function registerGsdExtension(pi: ExtensionAPI): void {
     ["db-tools", () => registerDbTools(pi)],
     ["journal-tools", () => registerJournalTools(pi)],
     ["query-tools", () => registerQueryTools(pi)],
+    ["memory-tools", () => registerMemoryTools(pi)],
     ["shortcuts", () => registerShortcuts(pi)],
     ["hooks", () => registerHooks(pi, ecosystemHandlers)],
     ["ecosystem", () => {
