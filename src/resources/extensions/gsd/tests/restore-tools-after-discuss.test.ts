@@ -45,9 +45,15 @@ describe('restore tools after discuss flow scoping (#3628)', () => {
   })
 
   it('savedTools is restored after sendMessage', () => {
-    // Find the sendMessage call
-    const sendMsg = src.indexOf('triggerTurn: true')
-    assert.ok(sendMsg !== -1, 'sendMessage with triggerTurn must exist')
+    // #4573: guided-flow.ts now contains multiple `triggerTurn: true` calls
+    // (ready-phrase and empty-turn recovery paths). The discuss-flow scoping
+    // sendMessage is the one that follows `savedTools = currentTools`, so
+    // anchor the search there rather than at the first `triggerTurn: true`.
+    const savedToolsAssign = src.indexOf('savedTools = currentTools')
+    assert.ok(savedToolsAssign !== -1, 'savedTools = currentTools must exist')
+
+    const sendMsg = src.indexOf('triggerTurn: true', savedToolsAssign)
+    assert.ok(sendMsg !== -1, 'discuss-flow sendMessage with triggerTurn must exist after savedTools capture')
 
     // After sendMessage, savedTools should be restored via setActiveTools
     const afterSend = src.slice(sendMsg, sendMsg + 500)
