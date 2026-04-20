@@ -905,6 +905,31 @@ function extractStructuredDetailsFromBlock(block: Record<string, unknown>): Reco
 	return undefined;
 }
 
+/**
+ * True for items that are MCP `structuredContent` pseudo-blocks living inside
+ * a tool-result `content[]` array. These blocks carry the structured payload
+ * (extracted separately by `extractStructuredDetailsFromBlock`) and must NOT
+ * leak into the visible content rendered to the user — otherwise the renderer
+ * stringifies the JSON pseudo-block and shows it next to the actual tool
+ * output. See PR #4477 review (CodeRabbit, post-fix-round).
+ */
+function isStructuredContentPseudoBlock(item: unknown): boolean {
+	if (!item || typeof item !== "object") return false;
+	const type = (item as Record<string, unknown>).type;
+	return type === "structuredContent" || type === "structured_content";
+}
+
+/**
+ * Strip `structuredContent` pseudo-blocks from a tool-result content array
+ * before normalization. The structured payload is extracted via the sibling
+ * `structuredContent` field (or a dedicated extractor pass on the raw block);
+ * the visible content path must not include the pseudo-block itself.
+ */
+function stripStructuredContentPseudoBlocks(content: unknown): unknown {
+	if (!Array.isArray(content)) return content;
+	return content.filter((item) => !isStructuredContentPseudoBlock(item));
+}
+
 /** Extract tool result payloads from an SDK synthetic user message, keyed by tool-use ID. */
 export function extractToolResultsFromSdkUserMessage(message: SDKUserMessage): Array<{
 	toolUseId: string;
@@ -928,7 +953,7 @@ export function extractToolResultsFromSdkUserMessage(message: SDKUserMessage): A
 		extracted.push({
 			toolUseId,
 			result: {
-				content: normalizeToolResultContent(block.content),
+				content: normalizeToolResultContent(stripStructuredContentPseudoBlocks(block.content)),
 				details: extractStructuredDetailsFromBlock(block),
 				isError: block.is_error === true,
 			},
@@ -944,7 +969,7 @@ export function extractToolResultsFromSdkUserMessage(message: SDKUserMessage): A
 				extracted.push({
 					toolUseId,
 					result: {
-						content: normalizeToolResultContent(toolResult.content),
+						content: normalizeToolResultContent(stripStructuredContentPseudoBlocks(toolResult.content)),
 						details: extractStructuredDetailsFromBlock(toolResult),
 						isError: toolResult.is_error === true,
 					},
