@@ -131,7 +131,8 @@ jobs:
             echo "Attempt $i failed — waiting 10s for npm registry propagation..."
             sleep 10
           done
-          echo "::error::Failed to install gsd-pi@${DEV_VERSION} after 6 attempts. The @dev tag may point at a broken artifact — deprecate it with: npm deprecate gsd-pi@${DEV_VERSION} 'broken build'"
+          echo "::error::Failed to install gsd-pi@${DEV_VERSION} after 6 attempts."
+          echo "::error::Recommended actions: (1) investigate the failing step above, (2) if the version exists on npm, deprecate it with 'npm deprecate gsd-pi@${DEV_VERSION} \"broken build; see Actions run\"', (3) cut a fix and re-run Dev Publish."
           exit 1
 
       - name: Run smoke tests (against installed binary)
