@@ -6,6 +6,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir, parseFrontmatter } from "@gsd/pi-coding-agent";
 
+const PROJECT_AGENT_DIR_CANDIDATES = [".gsd", ".pi"] as const;
+
 export type AgentScope = "user" | "project" | "both";
 
 export interface AgentConfig {
@@ -13,6 +15,7 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
+	conflictsWith?: string[];
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -21,6 +24,40 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+interface AgentFrontmatter extends Record<string, unknown> {
+	name?: string;
+	description?: string;
+	tools?: string | string[];
+	model?: string;
+	conflicts_with?: string;
+}
+
+export function parseConflictsWith(value: string | undefined): string[] | undefined {
+	if (typeof value !== "string") return undefined;
+	const conflicts = value.split(",").map((s) => s.trim()).filter(Boolean);
+	return conflicts.length > 0 ? conflicts : undefined;
+}
+
+function parseAgentTools(value: string | string[] | undefined): string[] | undefined {
+	if (typeof value === "string") {
+		const tools = value
+			.split(",")
+			.map((tool) => tool.trim())
+			.filter(Boolean);
+		return tools.length > 0 ? tools : undefined;
+	}
+
+	if (Array.isArray(value)) {
+		const tools = value
+			.flatMap((tool) => typeof tool === "string" ? tool.split(",") : [])
+			.map((tool) => tool.trim())
+			.filter(Boolean);
+		return tools.length > 0 ? tools : undefined;
+	}
+
+	return undefined;
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -49,22 +86,21 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+		const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
 
-		if (!frontmatter.name || !frontmatter.description) {
+		if (typeof frontmatter.name !== "string" || typeof frontmatter.description !== "string") {
 			continue;
 		}
 
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
+		const tools = parseAgentTools(frontmatter.tools);
+		const conflictsWith = parseConflictsWith(frontmatter.conflicts_with);
 
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
+			conflictsWith,
 			systemPrompt: body,
 			source,
 			filePath,
@@ -85,8 +121,12 @@ function isDirectory(p: string): boolean {
 function findNearestProjectAgentsDir(cwd: string): string | null {
 	let currentDir = cwd;
 	while (true) {
-		const candidate = path.join(currentDir, ".pi", "agents");
-		if (isDirectory(candidate)) return candidate;
+		// Prefer the documented project-local location while preserving support
+		// for older workarounds that placed agents under .pi/agents.
+		for (const configDir of PROJECT_AGENT_DIR_CANDIDATES) {
+			const candidate = path.join(currentDir, configDir, "agents");
+			if (isDirectory(candidate)) return candidate;
+		}
 
 		const parentDir = path.dirname(currentDir);
 		if (parentDir === currentDir) return null;

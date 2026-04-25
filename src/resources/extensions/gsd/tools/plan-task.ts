@@ -1,10 +1,13 @@
 import { clearParseCache } from "../files.js";
+import { isClosedStatus } from "../status-guards.js";
+import { isNonEmptyString, validateStringArray } from "../validation.js";
 import { transaction, getSlice, getTask, insertTask, upsertTaskPlanning } from "../gsd-db.js";
 import { invalidateStateCache } from "../state.js";
 import { renderTaskPlanFromDb } from "../markdown-renderer.js";
 import { renderAllProjections } from "../workflow-projections.js";
 import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
+import { logWarning } from "../workflow-logger.js";
 
 export interface PlanTaskParams {
   milestoneId: string;
@@ -30,20 +33,6 @@ export interface PlanTaskResult {
   sliceId: string;
   taskId: string;
   taskPlanPath: string;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function validateStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${field} must be an array`);
-  }
-  if (value.some((item) => !isNonEmptyString(item))) {
-    throw new Error(`${field} must contain only non-empty strings`);
-  }
-  return value;
 }
 
 function validateParams(params: PlanTaskParams): PlanTaskParams {
@@ -77,21 +66,29 @@ export async function handlePlanTask(
     return { error: `validation failed: ${(err as Error).message}` };
   }
 
-  const parentSlice = getSlice(params.milestoneId, params.sliceId);
-  if (!parentSlice) {
-    return { error: `missing parent slice: ${params.milestoneId}/${params.sliceId}` };
-  }
-  if (parentSlice.status === "complete" || parentSlice.status === "done") {
-    return { error: `cannot plan task in a closed slice: ${params.sliceId} (status: ${parentSlice.status})` };
-  }
-
-  const existingTask = getTask(params.milestoneId, params.sliceId, params.taskId);
-  if (existingTask && (existingTask.status === "complete" || existingTask.status === "done")) {
-    return { error: `cannot re-plan task ${params.taskId}: it is already complete — use gsd_task_reopen first` };
-  }
+  // ── Guards + DB writes inside a single transaction (prevents TOCTOU) ───
+  // Guards must be inside the transaction so the state they check cannot
+  // change between the read and the write (#2723).
+  let guardError: string | null = null;
 
   try {
     transaction(() => {
+      const parentSlice = getSlice(params.milestoneId, params.sliceId);
+      if (!parentSlice) {
+        guardError = `missing parent slice: ${params.milestoneId}/${params.sliceId}`;
+        return;
+      }
+      if (isClosedStatus(parentSlice.status)) {
+        guardError = `cannot plan task in a closed slice: ${params.sliceId} (status: ${parentSlice.status})`;
+        return;
+      }
+
+      const existingTask = getTask(params.milestoneId, params.sliceId, params.taskId);
+      if (existingTask && isClosedStatus(existingTask.status)) {
+        guardError = `cannot re-plan task ${params.taskId}: it is already complete — use gsd_task_reopen first`;
+        return;
+      }
+
       if (!existingTask) {
         insertTask({
           id: params.taskId,
@@ -117,6 +114,10 @@ export async function handlePlanTask(
     return { error: `db write failed: ${(err as Error).message}` };
   }
 
+  if (guardError) {
+    return { error: guardError };
+  }
+
   try {
     const renderResult = await renderTaskPlanFromDb(basePath, params.milestoneId, params.sliceId, params.taskId);
     invalidateStateCache();
@@ -135,9 +136,7 @@ export async function handlePlanTask(
         trigger_reason: params.triggerReason,
       });
     } catch (hookErr) {
-      process.stderr.write(
-        `gsd: plan-task post-mutation hook warning: ${(hookErr as Error).message}\n`,
-      );
+      logWarning("tool", `plan-task post-mutation hook warning: ${(hookErr as Error).message}`);
     }
 
     return {

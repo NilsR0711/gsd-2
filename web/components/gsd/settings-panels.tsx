@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
+  CircleDashed,
   Cpu,
   DollarSign,
   Eye,
@@ -14,10 +15,14 @@ import {
   LoaderCircle,
   Radio,
   RefreshCw,
+  RotateCcw,
   Settings,
+  SkipForward,
   SlidersHorizontal,
   Type,
+  Wand2,
 } from "lucide-react"
+import { useDevOverrides } from "@/lib/dev-overrides"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,7 +63,7 @@ function SettingsHeader({
     <div className="flex items-center justify-between gap-3 pb-4">
       <div className="flex items-center gap-2.5">
         <span className="text-muted-foreground">{icon}</span>
-        <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-foreground/70">{title}</h3>
+        <h3 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{title}</h3>
         {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
       </div>
       <Button type="button" variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing} className="h-7 gap-1.5 text-xs">
@@ -88,7 +93,7 @@ function SettingsLoading({ label }: { label: string }) {
 
 function SettingsEmpty({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-card/30 px-4 py-5 text-center text-xs text-muted-foreground">
+    <div className="rounded-lg border border-border/50 bg-card/50 px-4 py-5 text-center text-xs text-muted-foreground">
       {message}
     </div>
   )
@@ -101,7 +106,7 @@ function Pill({ label, value, variant }: { label: string; value: string | number
       variant === "info" && "border-info/20 bg-info/5 text-info",
       variant === "warning" && "border-warning/20 bg-warning/5 text-warning",
       variant === "success" && "border-success/20 bg-success/5 text-success",
-      (!variant || variant === "default") && "border-border/40 bg-card/50 text-foreground/80",
+      (!variant || variant === "default") && "border-border/50 bg-card/50 text-foreground/80",
     )}>
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium tabular-nums">{value}</span>
@@ -139,6 +144,24 @@ function SkillBadgeList({ label, skills }: { label: string; skills: string[] | u
   )
 }
 
+function ModelBadgeList({ models }: { models: Record<string, string> | undefined }) {
+  if (!models || Object.keys(models).length === 0) return null
+  return (
+    <div className="space-y-1">
+      <span className="text-[11px] text-muted-foreground">Phase Models</span>
+      <div className="flex flex-wrap gap-1">
+        {Object.entries(models)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([phase, model]) => (
+            <Badge key={phase} variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+              {phase}: {model}
+            </Badge>
+          ))}
+      </div>
+    </div>
+  )
+}
+
 function KvRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 text-xs">
@@ -170,6 +193,7 @@ function useSettingsData() {
 
 function tokenProfileVariant(profile: string | undefined): "info" | "warning" | "success" {
   if (profile === "budget") return "warning"
+  if (profile === "burn-max") return "warning"
   if (profile === "quality") return "success"
   return "info"
 }
@@ -206,16 +230,21 @@ export function PrefsPanel() {
 
           {/* Skills */}
           <div className="space-y-2">
+            <ModelBadgeList models={prefs.models} />
             <SkillBadgeList label="Always use" skills={prefs.alwaysUseSkills} />
             <SkillBadgeList label="Prefer" skills={prefs.preferSkills} />
             <SkillBadgeList label="Avoid" skills={prefs.avoidSkills} />
-            {!prefs.alwaysUseSkills?.length && !prefs.preferSkills?.length && !prefs.avoidSkills?.length && (
-              <span className="text-[11px] text-muted-foreground">No skill preferences configured</span>
-            )}
+            {!prefs.models || Object.keys(prefs.models).length === 0
+              ? !prefs.alwaysUseSkills?.length && !prefs.preferSkills?.length && !prefs.avoidSkills?.length && (
+                <span className="text-[11px] text-muted-foreground">No model or skill preferences configured</span>
+              )
+              : !prefs.alwaysUseSkills?.length && !prefs.preferSkills?.length && !prefs.avoidSkills?.length && (
+                <span className="text-[11px] text-muted-foreground">No skill preferences configured</span>
+              )}
           </div>
 
           {/* Toggles */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-border/30 bg-card/30 px-3 py-2.5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg border border-border/50 bg-card/50 px-3 py-2.5">
             <KvRow label="Auto-Supervisor">
               {prefs.autoSupervisor?.enabled ? (
                 <span className="text-success">
@@ -233,6 +262,47 @@ export function PrefsPanel() {
             <KvRow label="Auto-Visualize">
               <span className={prefs.autoVisualize ? "text-success" : "text-muted-foreground"}>
                 {prefs.autoVisualize ? "on" : "off"}
+              </span>
+            </KvRow>
+            <KvRow label="Service Tier">
+              <span className="font-mono text-[10px]">{prefs.serviceTier ?? "default"}</span>
+            </KvRow>
+            <KvRow label="Show Token Cost">
+              <span className={prefs.showTokenCost ? "text-success" : "text-muted-foreground"}>
+                {prefs.showTokenCost ? "on" : "off"}
+              </span>
+            </KvRow>
+            <KvRow label="Context Selection">
+              <span className="font-mono text-[10px]">{prefs.contextSelection ?? "full"}</span>
+            </KvRow>
+            <KvRow label="Context Window">
+              <span className="font-mono text-[10px]">
+                {typeof prefs.contextWindowOverride === "number" ? prefs.contextWindowOverride : "auto"}
+              </span>
+            </KvRow>
+            <KvRow label="Language">
+              <span className="font-mono text-[10px]">{prefs.language ?? "default"}</span>
+            </KvRow>
+            <KvRow label="Reactive Exec">
+              <span className={prefs.reactiveExecution?.enabled ? "text-success" : "text-muted-foreground"}>
+                {prefs.reactiveExecution?.enabled ? "on" : "off"}
+              </span>
+            </KvRow>
+            <KvRow label="Gate Eval">
+              <span className={prefs.gateEvaluation?.enabled ? "text-success" : "text-muted-foreground"}>
+                {prefs.gateEvaluation?.enabled ? "on" : "off"}
+              </span>
+            </KvRow>
+            <KvRow label="Slice Parallel">
+              <span className={prefs.sliceParallel?.enabled ? "text-success" : "text-muted-foreground"}>
+                {prefs.sliceParallel?.enabled ? "on" : "off"}
+              </span>
+            </KvRow>
+            <KvRow label="Phase Controls">
+              <span className="font-mono text-[10px]">
+                {prefs.phases
+                  ? Object.values(prefs.phases).filter((value) => value === true).length
+                  : 0} enabled
               </span>
             </KvRow>
             <KvRow label="Preference Scope">
@@ -343,8 +413,8 @@ export function ModelRoutingPanel() {
 
           {/* Tier assignments */}
           {routingConfig?.tier_models && (
-            <div className="rounded-lg border border-border/30 bg-card/30 px-3 py-2.5 space-y-1.5">
-              <h4 className="text-[11px] font-medium text-foreground/70 uppercase tracking-wide">Tier Assignments</h4>
+            <div className="rounded-lg border border-border/50 bg-card/50 px-3 py-2.5 space-y-1.5">
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Tier Assignments</h4>
               <TierModelRow tier="light" modelId={routingConfig.tier_models.light} />
               <TierModelRow tier="standard" modelId={routingConfig.tier_models.standard} />
               <TierModelRow tier="heavy" modelId={routingConfig.tier_models.heavy} />
@@ -370,10 +440,10 @@ export function ModelRoutingPanel() {
               {/* Top patterns table */}
               {Object.keys(routingHistory.patterns).length > 0 && (
                 <div className="space-y-1.5">
-                  <h4 className="text-[11px] font-medium text-foreground/70">Top Patterns</h4>
+                  <h4 className="text-[11px] font-medium text-muted-foreground">Top Patterns</h4>
                   <div className="space-y-2">
                     {topPatterns(routingHistory).map(({ name, total, pattern }) => (
-                      <div key={name} className="rounded-lg border border-border/30 bg-card/30 px-3 py-2 space-y-1">
+                      <div key={name} className="rounded-lg border border-border/50 bg-card/50 px-3 py-2 space-y-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-mono text-foreground/80 truncate">{name}</span>
                           <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{total} attempts</span>
@@ -451,12 +521,14 @@ export function BudgetPanel() {
               value={prefs?.tokenProfile ?? "balanced"}
               variant={tokenProfileVariant(prefs?.tokenProfile)}
             />
+            <Pill label="Service Tier" value={prefs?.serviceTier ?? "default"} />
+            <Pill label="Token Cost" value={prefs?.showTokenCost ? "shown" : "hidden"} />
           </div>
 
           {/* Context budget allocations */}
           {budget && (
-            <div className="rounded-lg border border-border/30 bg-card/30 px-3 py-2.5 space-y-1.5">
-              <h4 className="text-[11px] font-medium text-foreground/70 uppercase tracking-wide">Context Budget Allocations</h4>
+            <div className="rounded-lg border border-border/50 bg-card/50 px-3 py-2.5 space-y-1.5">
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Context Budget Allocations</h4>
               <KvRow label="Summary Budget">{formatChars(budget.summaryBudgetChars)} chars</KvRow>
               <KvRow label="Inline Context">{formatChars(budget.inlineContextBudgetChars)} chars</KvRow>
               <KvRow label="Verification">{formatChars(budget.verificationBudgetChars)} chars</KvRow>
@@ -468,7 +540,7 @@ export function BudgetPanel() {
           {/* Project cost totals */}
           {totals ? (
             <div className="space-y-3">
-              <h4 className="text-[11px] font-medium text-foreground/70 uppercase tracking-wide">Project Cost Totals</h4>
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Project Cost Totals</h4>
 
               {/* Summary pills */}
               <div className="flex flex-wrap gap-2">
@@ -478,8 +550,8 @@ export function BudgetPanel() {
               </div>
 
               {/* Token breakdown */}
-              <div className="rounded-lg border border-border/30 bg-card/30 px-3 py-2.5 space-y-1.5">
-                <h4 className="text-[11px] font-medium text-foreground/70 uppercase tracking-wide">Token Breakdown</h4>
+              <div className="rounded-lg border border-border/50 bg-card/50 px-3 py-2.5 space-y-1.5">
+                <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Token Breakdown</h4>
                 <KvRow label="Input">{formatTokens(totals.tokens.input)}</KvRow>
                 <KvRow label="Output">{formatTokens(totals.tokens.output)}</KvRow>
                 <KvRow label="Cache Read">{formatTokens(totals.tokens.cacheRead)}</KvRow>
@@ -764,7 +836,7 @@ export function RemoteQuestionsPanel() {
 
       {/* ── Channel picker (card-based) ──────────────────────────── */}
       <div className="space-y-2">
-        <div className="text-xs font-medium text-muted-foreground/60">
+        <div className="text-xs font-medium text-muted-foreground">
           {isConfigured ? "Switch channel" : "Choose a channel"}
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -783,11 +855,11 @@ export function RemoteQuestionsPanel() {
                 "active:scale-[0.97]",
                 channel === opt.value
                   ? "border-foreground/30 bg-foreground/[0.06]"
-                  : "border-border/40 bg-card/20 hover:border-foreground/15 hover:bg-card/50",
+                  : "border-border/50 bg-card/50 hover:border-foreground/15 hover:bg-card/50",
               )}
             >
               <div className="text-sm font-medium text-foreground">{opt.label}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground/60">{opt.description}</div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">{opt.description}</div>
             </button>
           ))}
         </div>
@@ -795,7 +867,7 @@ export function RemoteQuestionsPanel() {
 
       {/* ── Channel ID input ─────────────────────────────────────── */}
       <div className="space-y-2">
-        <div className="text-xs font-medium text-muted-foreground/60">Channel ID</div>
+        <div className="text-xs font-medium text-muted-foreground">Channel ID</div>
         <input
           type="text"
           value={channelId}
@@ -803,13 +875,13 @@ export function RemoteQuestionsPanel() {
           placeholder={selectedChannelOption.idPlaceholder}
           disabled={saving}
           className={cn(
-            "w-full rounded-xl border bg-card/20 px-4 py-2.5 font-mono text-sm text-foreground",
-            "placeholder:text-muted-foreground/40",
+            "w-full rounded-xl border bg-card/50 px-4 py-2.5 font-mono text-sm text-foreground",
+            "placeholder:text-muted-foreground",
             "focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent",
             "transition-colors",
             channelId.trim().length > 0 && !CHANNEL_ID_PATTERNS[channel].test(channelId.trim())
               ? "border-destructive/40"
-              : "border-border/40",
+              : "border-border/50",
           )}
           onKeyDown={(e) => { if (e.key === "Enter" && canSave) void handleSave() }}
         />
@@ -824,7 +896,7 @@ export function RemoteQuestionsPanel() {
       <button
         type="button"
         onClick={() => setShowAdvanced((v) => !v)}
-        className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-muted-foreground transition-colors"
       >
         <svg
           className={cn("h-3 w-3 transition-transform", showAdvanced && "rotate-90")}
@@ -839,7 +911,7 @@ export function RemoteQuestionsPanel() {
       {showAdvanced && (
         <div className="grid grid-cols-2 gap-3 pl-4">
           <div className="space-y-1.5">
-            <label className="text-[11px] text-muted-foreground/60" htmlFor="rq-timeout">
+            <label className="text-[11px] text-muted-foreground" htmlFor="rq-timeout">
               Timeout (min)
             </label>
             <input
@@ -849,11 +921,11 @@ export function RemoteQuestionsPanel() {
               max={30}
               value={timeoutMinutes}
               onChange={(e) => setTimeoutMinutes(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-              className="w-full rounded-lg border border-border/40 bg-card/20 px-3 py-2 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-lg border border-border/50 bg-card/50 px-3 py-2 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] text-muted-foreground/60" htmlFor="rq-poll">
+            <label className="text-[11px] text-muted-foreground" htmlFor="rq-poll">
               Poll interval (sec)
             </label>
             <input
@@ -863,7 +935,7 @@ export function RemoteQuestionsPanel() {
               max={30}
               value={pollIntervalSeconds}
               onChange={(e) => setPollIntervalSeconds(Math.max(2, Math.min(30, Number(e.target.value) || 2)))}
-              className="w-full rounded-lg border border-border/40 bg-card/20 px-3 py-2 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-lg border border-border/50 bg-card/50 px-3 py-2 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
@@ -888,7 +960,7 @@ export function RemoteQuestionsPanel() {
 
       {/* ── Bot token ─────────────────────────────────────────── */}
       <div className="space-y-3">
-        <div className="text-xs font-medium text-muted-foreground/60">Bot token</div>
+        <div className="text-xs font-medium text-muted-foreground">Bot token</div>
 
         {tokenSuccess && (
           <div className="flex items-center gap-2.5 rounded-xl border border-success/15 bg-success/[0.04] px-4 py-2.5 text-xs text-muted-foreground">
@@ -920,8 +992,8 @@ export function RemoteQuestionsPanel() {
               placeholder={`Paste your ${selectedChannelOption.label} bot token`}
               disabled={savingToken}
               className={cn(
-                "w-full rounded-xl border border-border/40 bg-card/20 pl-4 pr-10 py-2.5 font-mono text-sm text-foreground",
-                "placeholder:text-muted-foreground/40",
+                "w-full rounded-xl border border-border/50 bg-card/50 pl-4 pr-10 py-2.5 font-mono text-sm text-foreground",
+                "placeholder:text-muted-foreground",
                 "focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent",
                 "transition-colors",
               )}
@@ -930,7 +1002,7 @@ export function RemoteQuestionsPanel() {
             <button
               type="button"
               onClick={() => setShowToken((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground transition-colors"
             >
               {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             </button>
@@ -976,7 +1048,7 @@ function FontSizeControl({
   previewFont: "mono" | "sans"
 }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-card/30 px-3 py-3 space-y-3">
+    <div className="rounded-lg border border-border/50 bg-card/50 px-3 py-3 space-y-3">
       <div>
         <div className="text-xs font-medium text-foreground">{label}</div>
         <div className="text-[11px] text-muted-foreground mt-0.5">{description}</div>
@@ -992,12 +1064,12 @@ function FontSizeControl({
               "rounded-md border px-3 py-1.5 text-xs font-medium tabular-nums transition-colors",
               currentSize === size
                 ? "border-foreground/30 bg-foreground/10 text-foreground shadow-sm"
-                : "border-border/40 bg-card/50 text-muted-foreground hover:border-foreground/20 hover:text-foreground",
+                : "border-border/50 bg-card/50 text-muted-foreground hover:border-foreground/20 hover:text-foreground",
             )}
           >
             {size}px
             {size === defaultSize && (
-              <span className="ml-1 text-[10px] text-muted-foreground/60">(default)</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">(default)</span>
             )}
           </button>
         ))}
@@ -1005,13 +1077,146 @@ function FontSizeControl({
 
       <div
         className={cn(
-          "mt-2 rounded-md border border-border/20 bg-terminal px-3 py-2 text-foreground/80",
+          "mt-2 rounded-md border border-border/50 bg-terminal px-3 py-2 text-foreground/80",
           previewFont === "mono" ? "font-mono" : "font-sans",
         )}
         style={{ fontSize: `${currentSize}px`, lineHeight: 1.35 }}
       >
         The quick brown fox jumps over the lazy dog
       </div>
+    </div>
+  )
+}
+
+// ─── Onboarding status section ───────────────────────────────────────
+
+/**
+ * Canonical onboarding step IDs and human-readable labels.
+ *
+ * Mirrors `ONBOARDING_STEPS` in
+ * `src/resources/extensions/gsd/setup-catalog.ts`. Kept inline here (rather
+ * than imported from the CLI tree) to avoid pulling Node-only modules into
+ * the web bundle. If the CLI catalog adds a step, mirror the entry here so
+ * unrecognized step IDs don't break the rendering.
+ */
+const ONBOARDING_STEP_LABELS: Record<string, string> = {
+  llm: "LLM provider & auth",
+  model: "Default model",
+  search: "Web search provider",
+  remote: "Remote questions",
+  "tool-keys": "Tool API keys",
+  prefs: "Global preferences",
+  skills: "Skills install",
+  doctor: "Validate setup",
+  project: "Project init",
+}
+
+const ONBOARDING_STEP_ORDER = [
+  "llm", "model", "search", "remote", "tool-keys", "prefs", "skills", "doctor", "project",
+] as const
+
+function formatCompletionDate(iso: string | null | undefined): string {
+  if (!iso) return ""
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+  } catch {
+    return iso
+  }
+}
+
+function OnboardingStatusSection() {
+  const workspace = useGSDWorkspaceState()
+  const devOverrides = useDevOverrides()
+  const onboarding = workspace.boot?.onboarding
+  const record = onboarding?.completionRecord ?? null
+
+  // No bridge support yet — older bridges don't include the field.
+  if (record === undefined) return null
+
+  const completed = new Set(record?.completedSteps ?? [])
+  const skipped = new Set(record?.skippedSteps ?? [])
+  const completedAt = record?.completedAt ?? null
+  const lastResume = record?.lastResumePoint ?? null
+
+  const canForceReentry = devOverrides.isDevMode
+
+  const handleReenter = () => {
+    if (canForceReentry) {
+      // In dev mode, toggling the override re-shows the gate immediately.
+      // In production a server-side reset RPC is required (tracked separately).
+      devOverrides.toggle("forceOnboarding")
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-4" data-testid="settings-onboarding-status">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Wand2 className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>Onboarding setup</span>
+            {completedAt ? (
+              <Badge variant="outline" className="h-5 border-success/40 bg-success/10 text-[10px] text-success">
+                Complete
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="h-5 border-warning/40 bg-warning/10 text-[10px] text-warning">
+                Incomplete
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {completedAt
+              ? `Last completed ${formatCompletionDate(completedAt)}.`
+              : lastResume
+                ? `Paused at "${ONBOARDING_STEP_LABELS[lastResume] ?? lastResume}". Re-run /gsd onboarding --resume to continue.`
+                : "You haven't completed the onboarding wizard yet."}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleReenter}
+            disabled={!canForceReentry}
+            data-testid="settings-onboarding-rerun"
+          >
+            <RotateCcw className="mr-1.5 h-3 w-3" />
+            Re-run setup
+          </Button>
+          {!canForceReentry && (
+            <span className="text-[10px] text-muted-foreground">
+              Run <code className="rounded bg-muted px-1 font-mono">/gsd onboarding</code> in your terminal
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Per-step status grid */}
+      <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+        {ONBOARDING_STEP_ORDER.map((stepId) => {
+          const isComplete = completed.has(stepId)
+          const isSkipped = skipped.has(stepId)
+          const Icon = isComplete ? CheckCircle2 : isSkipped ? SkipForward : CircleDashed
+          const tone = isComplete
+            ? "text-success"
+            : isSkipped
+              ? "text-muted-foreground/70"
+              : "text-muted-foreground/50"
+          return (
+            <li
+              key={stepId}
+              className="flex items-center gap-2 text-[11px]"
+              data-testid={`settings-onboarding-step-${stepId}`}
+            >
+              <Icon className={cn("h-3 w-3 shrink-0", tone)} />
+              <span className={cn("truncate", isComplete ? "text-foreground" : "text-muted-foreground")}>
+                {ONBOARDING_STEP_LABELS[stepId] ?? stepId}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -1029,6 +1234,8 @@ export function GeneralPanel() {
         onRefresh={() => {}}
         refreshing={false}
       />
+
+      <OnboardingStatusSection />
 
       <FontSizeControl
         label="Terminal font size"
@@ -1141,7 +1348,7 @@ export function ExperimentalPanel() {
           return (
             <div
               key={flag.key}
-              className="rounded-lg border border-border/40 bg-card/30 px-3 py-3 space-y-2"
+              className="rounded-lg border border-border/50 bg-card/50 px-3 py-3 space-y-2"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 space-y-1">
@@ -1200,7 +1407,7 @@ export function ExperimentalPanel() {
       {data && (
         <p className="text-[11px] text-muted-foreground">
           Changes are written to{" "}
-          <span className="font-mono">{prefs?.path ?? "~/.gsd/preferences.md"}</span>
+          <span className="font-mono">{prefs?.path ?? "~/.gsd/PREFERENCES.md"}</span>
           {" "}and take effect on the next session.
         </p>
       )}

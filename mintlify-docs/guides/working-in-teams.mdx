@@ -10,7 +10,7 @@ GSD supports multi-user workflows where several developers work on the same repo
 ### 1. Set team mode
 
 ```yaml
-# .gsd/preferences.md (project-level, committed to git)
+# .gsd/PREFERENCES.md (project-level, committed to git)
 ---
 version: 1
 mode: team
@@ -26,24 +26,29 @@ Share planning artifacts while keeping runtime files local:
 ```bash
 # Runtime / ephemeral (per-developer)
 .gsd/auto.lock
-.gsd/completed-units.json
+.gsd/completed-units*.json
+.gsd/state-manifest.json
 .gsd/STATE.md
 .gsd/metrics.json
 .gsd/activity/
 .gsd/runtime/
 .gsd/worktrees/
+.gsd/gsd.db*
+.gsd/journal/
+.gsd/doctor-history.jsonl
+.gsd/event-log.jsonl
 .gsd/milestones/**/continue.md
 .gsd/milestones/**/*-CONTINUE.md
 ```
 
 **Shared** (committed): preferences, PROJECT.md, REQUIREMENTS.md, DECISIONS.md, milestones.
 
-**Local** (gitignored): lock files, metrics, state cache, worktrees, activity logs.
+**Local** (gitignored): lock files, metrics, state cache, worktrees, activity logs, database files, journals.
 
 ### 3. Commit
 
 ```bash
-git add .gsd/preferences.md
+git add .gsd/PREFERENCES.md
 git commit -m "chore: enable GSD team workflow"
 ```
 

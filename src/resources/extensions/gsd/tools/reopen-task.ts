@@ -18,9 +18,14 @@ import {
   transaction,
 } from "../gsd-db.js";
 import { invalidateStateCache } from "../state.js";
+import { isClosedStatus } from "../status-guards.js";
 import { renderAllProjections } from "../workflow-projections.js";
 import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
+import { logWarning } from "../workflow-logger.js";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { resolveTasksDir, clearPathCache } from "../paths.js";
 
 export interface ReopenTaskParams {
   milestoneId: string;
@@ -63,7 +68,7 @@ export async function handleReopenTask(
       guardError = `milestone not found: ${params.milestoneId}`;
       return;
     }
-    if (milestone.status === "complete" || milestone.status === "done") {
+    if (isClosedStatus(milestone.status)) {
       guardError = `cannot reopen task in a closed milestone: ${params.milestoneId} (status: ${milestone.status})`;
       return;
     }
@@ -73,8 +78,8 @@ export async function handleReopenTask(
       guardError = `slice not found: ${params.milestoneId}/${params.sliceId}`;
       return;
     }
-    if (slice.status === "complete" || slice.status === "done") {
-      guardError = `cannot reopen task inside a closed slice: ${params.sliceId} (status: ${slice.status}) — use gsd_slice_reopen first`;
+    if (isClosedStatus(slice.status)) {
+      guardError = `cannot reopen task in a closed slice: ${params.sliceId} (status: ${slice.status}) — use gsd_slice_reopen first`;
       return;
     }
 
@@ -83,7 +88,7 @@ export async function handleReopenTask(
       guardError = `task not found: ${params.milestoneId}/${params.sliceId}/${params.taskId}`;
       return;
     }
-    if (task.status !== "complete" && task.status !== "done") {
+    if (!isClosedStatus(task.status)) {
       guardError = `task ${params.taskId} is not complete (status: ${task.status}) — nothing to reopen`;
       return;
     }
@@ -97,6 +102,20 @@ export async function handleReopenTask(
 
   // ── Invalidate caches ────────────────────────────────────────────────────
   invalidateStateCache();
+
+  // ── Clean up stale filesystem artifacts (M12 fix) ────────────────────────
+  // Without this, the DB-filesystem reconciler sees the SUMMARY.md and
+  // auto-corrects the task back to "complete", making reopen a no-op (#3161).
+  try {
+    const tasksDir = resolveTasksDir(basePath, params.milestoneId, params.sliceId);
+    if (tasksDir) {
+      const summaryPath = join(tasksDir, `${params.taskId}-SUMMARY.md`);
+      if (existsSync(summaryPath)) unlinkSync(summaryPath);
+    }
+  } catch (cleanupErr) {
+    logWarning("tool", `reopen-task artifact cleanup warning: ${(cleanupErr as Error).message}`);
+  }
+  clearPathCache();
 
   // ── Post-mutation hook ───────────────────────────────────────────────────
   try {
@@ -116,9 +135,7 @@ export async function handleReopenTask(
       trigger_reason: params.triggerReason,
     });
   } catch (hookErr) {
-    process.stderr.write(
-      `gsd: reopen-task post-mutation hook warning: ${(hookErr as Error).message}\n`,
-    );
+    logWarning("tool", `reopen-task post-mutation hook warning: ${(hookErr as Error).message}`);
   }
 
   return {

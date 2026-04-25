@@ -1,6 +1,6 @@
 # GSD Preferences Reference
 
-Full documentation for `~/.gsd/preferences.md` (global) and `.gsd/preferences.md` (project).
+Full documentation for `~/.gsd/PREFERENCES.md` (global) and `.gsd/PREFERENCES.md` (project).
 
 ---
 
@@ -51,8 +51,8 @@ skill_rules: []
 
 Preferences are loaded from two locations and merged:
 
-1. **Global:** `~/.gsd/preferences.md` — applies to all projects
-2. **Project:** `.gsd/preferences.md` — applies to the current project only
+1. **Global:** `~/.gsd/PREFERENCES.md` — applies to all projects
+2. **Project:** `.gsd/PREFERENCES.md` — applies to the current project only
 
 **Merge behavior** (see `mergePreferences()` in `preferences.ts`):
 
@@ -102,12 +102,16 @@ Setting `prefer_skills: []` does **not** disable skill discovery — it just mea
 
 - `custom_instructions`: extra durable instructions related to skill use. For operational project knowledge (recurring rules, gotchas, patterns), use `.gsd/KNOWLEDGE.md` instead — it's injected into every agent prompt automatically and agents can append to it during execution.
 
-- `models`: per-stage model selection for auto-mode. Keys: `research`, `planning`, `execution`, `execution_simple`, `completion`, `subagent`. Values can be:
+- `language`: preferred response language for all GSD interactions. Accepts any language name or code — `"Chinese"`, `"zh"`, `"German"`, `"de"`, `"日本語"`, etc. When set, GSD injects "Always respond in \<language\>" into every agent's system prompt, including after `/clear`. Quickest way to set it: `/gsd language <name>`. To clear: `/gsd language off`.
+
+- `models`: per-stage model selection (applies to both auto-mode and guided-flow dispatches). Keys: `research`, `planning`, `discuss`, `execution`, `execution_simple`, `completion`, `validation`, `subagent`. Values can be:
   - Simple string: `"claude-sonnet-4-6"` — single model, no fallbacks
   - Provider-qualified string: `"bedrock/claude-sonnet-4-6"` — targets a specific provider when the same model ID exists across multiple providers
   - Object with fallbacks: `{ model: "claude-opus-4-6", fallbacks: ["glm-5", "minimax-m2.5"] }` — tries fallbacks in order if primary fails
   - Object with provider: `{ model: "claude-opus-4-6", provider: "bedrock" }` — explicit provider targeting in object format
-  - Omit a key to use whatever model is currently active. Fallbacks are tried when model switching fails (provider unavailable, rate limited, etc.).
+  - Omit a key to use whatever model is currently active (except `discuss` and `validation` which fall back to `planning` when unset). Fallbacks are tried when model switching fails (provider unavailable, rate limited, etc.).
+  - `discuss` — used for milestone/slice discussion (interactive context gathering). Falls back to `planning` if unset.
+  - `validation` — used for gate evaluation, roadmap reassessment, milestone validation, and doc rewrites. Falls back to `planning` if unset.
 
 - `skill_staleness_days`: number — skills unused for this many days get deprioritized during discovery. Set to `0` to disable staleness tracking. Default: `60`.
 
@@ -126,8 +130,8 @@ Setting `prefer_skills: []` does **not** disable skill discovery — it just mea
   - `auto_push`: boolean — automatically push commits to the remote after committing. Default: `false`.
   - `push_branches`: boolean — push the milestone branch to the remote after commits. Default: `false`.
   - `remote`: string — git remote name to push to. Default: `"origin"`.
-  - `snapshots`: boolean — create snapshot commits (WIP saves) during long-running tasks. Default: `false`.
-  - `pre_merge_check`: boolean or `"auto"` — run pre-merge checks before merging a worktree back to the integration branch. `true` always runs, `false` never runs, `"auto"` runs when CI is detected. Default: `false`.
+  - `snapshots`: boolean — create WIP snapshot commits (e.g. pre-dispatch and stale-uncommitted-changes safety commits emitted by the doctor). Set to `false` to suppress all doctor-initiated `gsd snapshot:` commits. Default: `true`.
+  - `pre_merge_check`: boolean or `"auto"` — run pre-merge checks before merging a worktree back to the integration branch. `true` always runs, `false` never runs, `"auto"` runs when CI is detected. Default: `"auto"`.
   - `commit_type`: string — override the conventional commit type prefix. Must be one of: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`, `style`. Default: inferred from diff content.
   - `main_branch`: string — the primary branch name for new git repos (e.g., `"main"`, `"master"`, `"trunk"`). Also used by `getMainBranch()` as the preferred branch when auto-detection is ambiguous. Default: `"main"`.
   - `merge_strategy`: `"squash"` or `"merge"` — controls how worktree branches are merged back. `"squash"` combines all commits into one; `"merge"` preserves individual commits. Default: `"squash"`.
@@ -151,11 +155,11 @@ Setting `prefer_skills: []` does **not** disable skill discovery — it just mea
 
 - `context_pause_threshold`: number (0-100) — context window usage percentage at which auto-mode should pause to suggest checkpointing. Set to `0` to disable. Default: `0` (disabled).
 
-- `token_profile`: `"budget"`, `"balanced"`, or `"quality"` — coordinates model selection, phase skipping, and context compression. `budget` skips research/reassessment and uses cheaper models; `balanced` (default) skips research/reassessment to reduce token burn; `quality` prefers higher-quality models. See token-optimization docs.
+- `token_profile`: `"budget"`, `"balanced"`, `"quality"`, or `"burn-max"` — coordinates model selection, phase skipping, and context compression. `budget` skips research/reassessment and uses cheaper models; `balanced` (default) skips research/reassessment to reduce token burn; `quality` prefers higher-quality models; `burn-max` keeps full-context defaults, disables downgrade routing, and keeps phase skips off.
 
 - `phases`: fine-grained control over which phases run. Usually set by `token_profile`, but can be overridden. Keys:
   - `skip_research`: boolean — skip milestone-level research. Default: `false`.
-  - `reassess_after_slice`: boolean — run roadmap reassessment after each completed slice. Default: `false`.
+  - `reassess_after_slice`: boolean — run a dedicated roadmap-reassessment unit after each completed slice. Default: `false` (per ADR-003 §4). The plan-slice agent for the next slice performs JIT reassessment via a prompt preamble at zero additional token cost; a dedicated reassess session is opt-in. Set to `true` (e.g. via the `burn-max` profile) if you want the explicit session.
   - `skip_reassess`: boolean — force-disable roadmap reassessment even if `reassess_after_slice` is enabled. Default: `false`.
   - `skip_slice_research`: boolean — skip per-slice research. Default: `false`.
 
@@ -187,6 +191,26 @@ Setting `prefer_skills: []` does **not** disable skill discovery — it just mea
   - `budget_pressure`: boolean — downgrade model tier when budget is under pressure. Default: `true`.
   - `cross_provider`: boolean — allow routing across different providers. Default: `true`.
   - `hooks`: boolean — enable routing hooks. Default: `true`.
+  - `capability_routing`: boolean — enable capability-profile scoring for model selection within a tier. Requires `enabled: true`. Default: `false`.
+
+- `uok`: Unified Orchestration Kernel controls. Keys:
+  - `enabled`: boolean — enable kernel wrappers and contract observers. Default: `true`.
+  - `legacy_fallback.enabled`: boolean — emergency release fallback that forces legacy orchestration behavior even when `uok.enabled` is `true`. Default: `false`.
+    - Runtime override: set `GSD_UOK_FORCE_LEGACY=1` (or `GSD_UOK_LEGACY_FALLBACK=1`) to force legacy behavior for the current process.
+  - `gates.enabled`: boolean — route checks through the unified gate runner and persist `gate_runs`. Default: `true`.
+  - `model_policy.enabled`: boolean — enforce policy filtering before model capability scoring. Default: `true`.
+  - `execution_graph.enabled`: boolean — enable DAG scheduler facade/adapters for execution. Default: `true`.
+  - `gitops.enabled`: boolean — persist turn-level git transaction records. Default: `true`.
+  - `gitops.turn_action`: `"commit"` | `"snapshot"` | `"status-only"` — turn transaction mode. Default: `"commit"` (per-task atomic commits).
+  - `gitops.turn_push`: boolean — whether turn transactions should include push intent metadata. Default: `false`.
+  - `audit_unified.enabled`: boolean — dual-write unified audit envelope events. Default: `true`.
+  - `plan_v2.enabled`: boolean — enable bounded clarify/research/draft/compile planning flow. Default: `true`.
+
+- `context_management`: configures context hygiene for auto-mode sessions. Keys:
+  - `observation_masking`: boolean — mask old tool results to reduce context bloat. Default: `true`.
+  - `observation_mask_turns`: number — keep this many recent turns verbatim (1-50). Default: `8`.
+  - `compaction_threshold_percent`: number — trigger compaction at this % of context window (0.5-0.95). Lower values fire compaction earlier, reducing drift. Default: `0.70`.
+  - `tool_result_max_chars`: number — max chars per tool result in GSD sessions (200-10000). Default: `800`.
 
 - `auto_visualize`: boolean — show a visualizer hint after each milestone completion in auto-mode. Default: `false`.
 
@@ -202,6 +226,7 @@ Setting `prefer_skills: []` does **not** disable skill discovery — it just mea
   - `budget_ceiling`: number — optional per-parallel-run budget ceiling.
   - `merge_strategy`: `"per-slice"` or `"per-milestone"` — when to merge worktree results back. Default: `"per-milestone"`.
   - `auto_merge`: `"auto"`, `"confirm"`, or `"manual"` — merge behavior after completion. `"auto"` merges immediately; `"confirm"` asks first; `"manual"` leaves branches for you. Default: `"confirm"`.
+  - `worker_model`: string — optional model override for parallel milestone workers. When set, workers use this model (e.g. `"claude-haiku-4-5"`) instead of inheriting the coordinator's model. Useful for cost savings on execution-heavy milestones.
 
 - `verification_commands`: string[] — shell commands to run as verification after task execution (e.g., `["npm test", "npm run lint"]`). Commands run in order; if any fails, the task is marked as needing fixes.
 

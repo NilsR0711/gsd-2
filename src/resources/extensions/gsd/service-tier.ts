@@ -2,8 +2,8 @@
  * Service Tier — gating, status formatting, icon resolution, and
  * the /gsd fast command handler.
  *
- * Service tiers (priority/flex) are an OpenAI feature that only applies
- * to gpt-5.4 variants. This module centralizes the model-gating logic
+ * Service tiers (priority/flex) are an OpenAI feature that currently only
+ * applies to gpt-5.4 variants in GSD. This module centralizes the model-gating logic
  * so that icons, preferences, and the before_provider_request hook all
  * use a single source of truth.
  */
@@ -28,14 +28,29 @@ const SERVICE_TIER_SCOPE_NOTE = "Only affects gpt-5.4 models, regardless of prov
 // ─── Gating ──────────────────────────────────────────────────────────────────
 
 /**
+ * Model ID prefixes (bare, without provider) that support OpenAI service tiers.
+ *
+ * This list is the fallback for callers that only have a model ID string.
+ * The authoritative source of truth is `model.capabilities.supportsServiceTier`
+ * (set via CAPABILITY_PATCHES in packages/pi-ai/src/models.ts). When callers
+ * have access to the full Model object, prefer reading capabilities directly.
+ *
+ * GPT-5.5 is intentionally excluded until we verify its provider payload
+ * contract instead of assuming `service_tier` support.
+ *
+ * See: https://github.com/gsd-build/gsd-2/issues/2546
+ */
+const SERVICE_TIER_MODEL_PREFIXES = ["gpt-5.4"] as const;
+
+/**
  * Returns true when the given model ID supports OpenAI service tiers.
- * Currently only gpt-5.4 variants qualify.
+ * Reads from SERVICE_TIER_MODEL_PREFIXES — update that list, not this function.
  */
 export function supportsServiceTier(modelId: string): boolean {
   if (!modelId) return false;
   // Strip provider prefix if present (e.g. "openai/gpt-5.4" → "gpt-5.4")
   const bare = modelId.includes("/") ? modelId.split("/").pop()! : modelId;
-  return bare.startsWith("gpt-5.4");
+  return SERVICE_TIER_MODEL_PREFIXES.some((prefix) => bare.startsWith(prefix));
 }
 
 // ─── Status Formatting ───────────────────────────────────────────────────────

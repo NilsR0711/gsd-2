@@ -1,4 +1,6 @@
 import { clearParseCache } from "../files.js";
+import { isClosedStatus, isDeferredStatus } from "../status-guards.js";
+import { isNonEmptyString, validateStringArray } from "../validation.js";
 import {
   transaction,
   getMilestone,
@@ -7,7 +9,7 @@ import {
   upsertSlicePlanning,
   upsertTaskPlanning,
   insertGateRow,
-  _getAdapter,
+  updateSliceStatus,
 } from "../gsd-db.js";
 import type { GateId } from "../types.js";
 import { invalidateStateCache } from "../state.js";
@@ -15,6 +17,7 @@ import { renderPlanFromDb } from "../markdown-renderer.js";
 import { renderAllProjections } from "../workflow-projections.js";
 import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
+import { logWarning } from "../workflow-logger.js";
 
 export interface PlanSliceTaskInput {
   taskId: string;
@@ -33,11 +36,15 @@ export interface PlanSliceParams {
   milestoneId: string;
   sliceId: string;
   goal: string;
-  successCriteria: string;
-  proofLevel: string;
-  integrationClosure: string;
-  observabilityImpact: string;
   tasks: PlanSliceTaskInput[];
+  /** @optional — defaults to "Not provided." when omitted by models with limited tool-calling */
+  successCriteria?: string;
+  /** @optional — defaults to "Not provided." when omitted */
+  proofLevel?: string;
+  /** @optional — defaults to "Not provided." when omitted */
+  integrationClosure?: string;
+  /** @optional — defaults to "Not provided." when omitted */
+  observabilityImpact?: string;
   /** Optional caller-provided identity for audit trail */
   actorName?: string;
   /** Optional caller-provided reason this action was triggered */
@@ -49,20 +56,6 @@ export interface PlanSliceResult {
   sliceId: string;
   planPath: string;
   taskPlanPaths: string[];
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function validateStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${field} must be an array`);
-  }
-  if (value.some((item) => !isNonEmptyString(item))) {
-    throw new Error(`${field} must contain only non-empty strings`);
-  }
-  return value;
 }
 
 function validateTasks(value: unknown): PlanSliceTaskInput[] {
@@ -124,13 +117,14 @@ function validateParams(params: PlanSliceParams): PlanSliceParams {
   if (!isNonEmptyString(params?.milestoneId)) throw new Error("milestoneId is required");
   if (!isNonEmptyString(params?.sliceId)) throw new Error("sliceId is required");
   if (!isNonEmptyString(params?.goal)) throw new Error("goal is required");
-  if (!isNonEmptyString(params?.successCriteria)) throw new Error("successCriteria is required");
-  if (!isNonEmptyString(params?.proofLevel)) throw new Error("proofLevel is required");
-  if (!isNonEmptyString(params?.integrationClosure)) throw new Error("integrationClosure is required");
-  if (!isNonEmptyString(params?.observabilityImpact)) throw new Error("observabilityImpact is required");
 
   return {
     ...params,
+    // Apply defaults for optional enrichment fields (#2771)
+    successCriteria: params.successCriteria ?? "Not provided.",
+    proofLevel: params.proofLevel ?? "Not provided.",
+    integrationClosure: params.integrationClosure ?? "Not provided.",
+    observabilityImpact: params.observabilityImpact ?? "Not provided.",
     tasks: validateTasks(params.tasks),
   };
 }
@@ -146,24 +140,37 @@ export async function handlePlanSlice(
     return { error: `validation failed: ${(err as Error).message}` };
   }
 
-  const parentMilestone = getMilestone(params.milestoneId);
-  if (!parentMilestone) {
-    return { error: `milestone not found: ${params.milestoneId}` };
-  }
-  if (parentMilestone.status === "complete" || parentMilestone.status === "done") {
-    return { error: `cannot plan slice in a closed milestone: ${params.milestoneId} (status: ${parentMilestone.status})` };
-  }
-
-  const parentSlice = getSlice(params.milestoneId, params.sliceId);
-  if (!parentSlice) {
-    return { error: `missing parent slice: ${params.milestoneId}/${params.sliceId}` };
-  }
-  if (parentSlice.status === "complete" || parentSlice.status === "done") {
-    return { error: `cannot re-plan slice ${params.sliceId}: it is already complete — use gsd_slice_reopen first` };
-  }
+  // ── Guards + DB writes inside a single transaction (prevents TOCTOU) ───
+  // Guards must be inside the transaction so the state they check cannot
+  // change between the read and the write (#2723).
+  let guardError: string | null = null;
 
   try {
     transaction(() => {
+      const parentMilestone = getMilestone(params.milestoneId);
+      if (!parentMilestone) {
+        guardError = `milestone not found: ${params.milestoneId}`;
+        return;
+      }
+      if (isClosedStatus(parentMilestone.status)) {
+        guardError = `cannot plan slice in a closed milestone: ${params.milestoneId} (status: ${parentMilestone.status})`;
+        return;
+      }
+
+      const parentSlice = getSlice(params.milestoneId, params.sliceId);
+      if (!parentSlice) {
+        guardError = `missing parent slice: ${params.milestoneId}/${params.sliceId}`;
+        return;
+      }
+      if (isClosedStatus(parentSlice.status)) {
+        guardError = `cannot re-plan slice ${params.sliceId}: it is already complete — use gsd_slice_reopen first`;
+        return;
+      }
+
+      if (isDeferredStatus(parentSlice.status)) {
+        updateSliceStatus(params.milestoneId, params.sliceId, "pending");
+      }
+
       upsertSlicePlanning(params.milestoneId, params.sliceId, {
         goal: params.goal,
         successCriteria: params.successCriteria,
@@ -211,6 +218,10 @@ export async function handlePlanSlice(
     return { error: `db write failed: ${(err as Error).message}` };
   }
 
+  if (guardError) {
+    return { error: guardError };
+  }
+
   try {
     const renderResult = await renderPlanFromDb(basePath, params.milestoneId, params.sliceId);
     invalidateStateCache();
@@ -229,9 +240,7 @@ export async function handlePlanSlice(
         trigger_reason: params.triggerReason,
       });
     } catch (hookErr) {
-      process.stderr.write(
-        `gsd: plan-slice post-mutation hook warning: ${(hookErr as Error).message}\n`,
-      );
+      logWarning("tool", `plan-slice post-mutation hook warning: ${(hookErr as Error).message}`);
     }
 
     return {
@@ -241,9 +250,7 @@ export async function handlePlanSlice(
       taskPlanPaths: renderResult.taskPlanPaths,
     };
   } catch (renderErr) {
-    process.stderr.write(
-      `gsd-db: plan_slice — render failed (DB rows preserved for debugging): ${(renderErr as Error).message}\n`,
-    );
+    logWarning("tool", `plan_slice — render failed (DB rows preserved for debugging): ${(renderErr as Error).message}`);
     invalidateStateCache();
     return { error: `render failed: ${(renderErr as Error).message}` };
   }

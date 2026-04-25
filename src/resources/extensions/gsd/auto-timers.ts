@@ -15,6 +15,8 @@ import { computeBudgets, resolveExecutorContextWindow } from "./context-budget.j
 import {
   getInFlightToolCount,
   getOldestInFlightToolStart,
+  clearInFlightTools,
+  hasInteractiveToolInFlight,
 } from "./auto-tool-tracking.js";
 import { detectWorkingTreeActivity } from "./auto-supervisor.js";
 import { closeoutUnit, type CloseoutOptions } from "./auto-unit-closeout.js";
@@ -22,6 +24,7 @@ import { saveActivityLog } from "./activity-log.js";
 import { recoverTimedOutUnit, type RecoveryContext } from "./auto-timeout-recovery.js";
 import { resolveAgentEndCancelled } from "./auto/resolve.js";
 import type { AutoSession } from "./auto/session.js";
+import { logWarning, logError } from "./workflow-logger.js";
 
 export interface SupervisionContext {
   s: AutoSession;
@@ -97,13 +100,15 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
           }
         }
       }
-    } catch {
+    } catch (err) {
       // Non-fatal — fall through with no estimate
+      logWarning("timer", `operation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   const estimateMinutes = taskEstimate ? parseEstimateMinutes(taskEstimate) : null;
+  const MAX_TIMEOUT_SCALE = 6; // Cap at 6x (60min task). Prevents 2h+ tasks from creating 120min+ timeout windows.
   const timeoutScale = estimateMinutes && estimateMinutes > 0
-    ? Math.max(1, estimateMinutes / 10)  // 10min task = 1x, 30min = 3x, 2h = 12x
+    ? Math.min(MAX_TIMEOUT_SCALE, Math.max(1, estimateMinutes / 10))
     : 1;
 
   const softTimeoutMs = (supervisor.soft_timeout_minutes ?? 0) * 60 * 1000 * timeoutScale;
@@ -118,6 +123,10 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       phase: "wrapup-warning-sent",
       wrapupWarningSent: true,
     });
+    // Only trigger a new turn if no tools are currently in flight.
+    // Triggering during active tool calls causes tool results to be skipped
+    // with "Skipped due to queued user message", leading to provider errors (#3512).
+    const softTrigger = getInFlightToolCount() === 0;
     pi.sendMessage(
       {
         customType: "gsd-auto-wrapup",
@@ -132,7 +141,7 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
           "4. leave precise resume notes if anything remains unfinished",
         ].join("\n"),
       },
-      { triggerTurn: true },
+      { triggerTurn: softTrigger },
     );
   }, softTimeoutMs);
 
@@ -146,7 +155,17 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
 
       // Agent has tool calls currently executing — not idle, just waiting.
       // But only suppress recovery if the tool started recently.
+      let stalledToolDetected = false;
       if (getInFlightToolCount() > 0) {
+        // User-interactive tools (ask_user_questions, secure_env_collect) block
+        // waiting for human input by design — never treat them as stalled (#2676).
+        if (hasInteractiveToolInFlight()) {
+          writeUnitRuntimeRecord(s.basePath, unitType, unitId, s.currentUnit.startedAt, {
+            lastProgressAt: Date.now(),
+            lastProgressKind: "interactive-tool-waiting",
+          });
+          return;
+        }
         const oldestStart = getOldestInFlightToolStart()!;
         const toolAgeMs = Date.now() - oldestStart;
         if (toolAgeMs < idleTimeoutMs) {
@@ -156,6 +175,12 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
           });
           return;
         }
+        // Tool has been in-flight longer than idle timeout — treat as hung.
+        // Clear the stale entries so subsequent ticks don't re-detect them,
+        // and set the flag so the filesystem-activity check below does not
+        // override the stall verdict (#2527).
+        stalledToolDetected = true;
+        clearInFlightTools();
         ctx.ui.notify(
           `Stalled tool detected: a tool has been in-flight for ${Math.round(toolAgeMs / 60000)}min. Treating as hung — attempting idle recovery.`,
           "warning",
@@ -163,7 +188,9 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       }
 
       // Check if the agent is producing work on disk.
-      if (detectWorkingTreeActivity(s.basePath)) {
+      // Skip this when a stalled tool was just detected — filesystem changes
+      // from earlier in the task should not override the stall verdict (#2527).
+      if (!stalledToolDetected && detectWorkingTreeActivity(s.basePath)) {
         writeUnitRuntimeRecord(s.basePath, unitType, unitId, s.currentUnit.startedAt, {
           lastProgressAt: Date.now(),
           lastProgressKind: "filesystem-activity",
@@ -180,6 +207,10 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       const recovery = await recoverTimedOutUnit(ctx, pi, unitType, unitId, "idle", buildRecoveryContext());
       if (recovery === "recovered") return;
 
+      // Guard: recoverTimedOutUnit is async — pauseAuto/stopAuto may have
+      // set s.currentUnit = null during the await (#2527).
+      if (!s.currentUnit) return;
+
       writeUnitRuntimeRecord(s.basePath, unitType, unitId, s.currentUnit.startedAt, {
         phase: "paused",
       });
@@ -190,12 +221,14 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       await pauseAuto(ctx, pi);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[idle-watchdog] Unhandled error: ${message}`);
+      logError("timer", `[idle-watchdog] Unhandled error: ${message}`);
       // Unblock any pending unit promise so the auto-loop is not orphaned.
       resolveAgentEndCancelled({ message: `Idle watchdog error: ${message}`, category: "idle", isTransient: true });
       try {
         ctx.ui.notify(`Idle watchdog error: ${message}`, "warning");
-      } catch { /* best effort */ }
+      } catch (err) { /* best effort */
+        logWarning("timer", `notification failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }, 15000);
 
@@ -224,12 +257,14 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       await pauseAuto(ctx, pi);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[hard-timeout] Unhandled error: ${message}`);
+      logError("timer", `[hard-timeout] Unhandled error: ${message}`);
       // Unblock any pending unit promise so the auto-loop is not orphaned.
       resolveAgentEndCancelled({ message: `Hard timeout error: ${message}`, category: "timeout", isTransient: true });
       try {
         ctx.ui.notify(`Hard timeout error: ${message}`, "warning");
-      } catch { /* best effort */ }
+      } catch (err) { /* best effort */
+        logWarning("timer", `notification failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }, hardTimeoutMs);
 
@@ -263,6 +298,8 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       );
     }
 
+    // Only trigger a new turn if no tools are currently in flight (#3512).
+    const contextTrigger = getInFlightToolCount() === 0;
     pi.sendMessage(
       {
         customType: "gsd-auto-wrapup",
@@ -278,7 +315,7 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
           "Do NOT start new sub-tasks or investigations.",
         ].join("\n"),
       },
-      { triggerTurn: true },
+      { triggerTurn: contextTrigger },
     );
 
     if (s.continueHereHandle) {
@@ -287,3 +324,4 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
     }
   }, 15_000);
 }
+

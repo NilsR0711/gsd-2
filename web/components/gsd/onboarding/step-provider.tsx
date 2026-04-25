@@ -23,6 +23,7 @@ function capabilityBadges(provider: WorkspaceOnboardingProviderState): string[] 
   if (provider.supports.apiKey) badges.push("API key")
   if (provider.supports.oauth)
     badges.push(provider.supports.oauthAvailable ? "Browser sign-in" : "OAuth unavailable")
+  if (provider.supports.externalCli) badges.push("CLI auth")
   return badges
 }
 
@@ -31,6 +32,7 @@ function configuredViaLabel(source: WorkspaceOnboardingProviderState["configured
     case "auth_file": return "Saved auth"
     case "environment": return "Environment variable"
     case "runtime": return "Runtime"
+    case "external_cli": return "CLI"
     default: return "Not configured"
   }
 }
@@ -79,7 +81,7 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
       >
         {groups.map((group) => (
           <div key={group.label}>
-            <div className="mb-2 px-0.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/50">
+            <div className="mb-2 px-0.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
               {group.label}
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -96,7 +98,7 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
                       "active:scale-[0.98]",
                       selected
                         ? "border-foreground/30 bg-foreground/[0.06]"
-                        : "border-border/40 bg-card/20 hover:border-foreground/15 hover:bg-card/50",
+                        : "border-border/50 bg-card/50 hover:border-foreground/15 hover:bg-card/50",
                     )}
                     data-testid={`onboarding-provider-${provider.id}`}
                   >
@@ -116,7 +118,7 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">{provider.label}</span>
                         {provider.recommended && (
-                          <Badge variant="outline" className="border-foreground/10 bg-foreground/[0.03] text-[9px] text-foreground/50">
+                          <Badge variant="outline" className="border-foreground/10 bg-foreground/[0.03] text-[9px] text-muted-foreground">
                             Recommended
                           </Badge>
                         )}
@@ -129,7 +131,7 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
                             <span>{configuredViaLabel(provider.configuredVia)}</span>
                           </>
                         ) : (
-                          <span className="text-muted-foreground/50">Not configured</span>
+                          <span className="text-muted-foreground">Not configured</span>
                         )}
                       </div>
                     </div>
@@ -138,7 +140,7 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
                       {capabilityBadges(provider).map((cap) => (
                         <Tooltip key={cap}>
                           <TooltipTrigger asChild>
-                            <Badge variant="outline" className="border-border/30 text-[10px] text-muted-foreground/60">
+                            <Badge variant="outline" className="border-border/50 text-[10px] text-muted-foreground">
                               {cap}
                             </Badge>
                           </TooltipTrigger>
@@ -147,7 +149,9 @@ export function StepProvider({ providers, selectedId, onSelect, onNext, onBack }
                               ? "Enter an API key to authenticate"
                               : cap === "Browser sign-in"
                                 ? "Authenticate through your browser"
-                                : "This auth method is not available"}
+                                : cap === "CLI auth"
+                                  ? "Authenticated via local CLI — no API key needed"
+                                  : "This auth method is not available"}
                           </TooltipContent>
                         </Tooltip>
                       ))}

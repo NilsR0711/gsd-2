@@ -1,21 +1,28 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
+import {
+  GSD_RTK_DISABLED_ENV,
+  GSD_RTK_PATH_ENV,
+  RTK_TELEMETRY_DISABLED_ENV,
+  getManagedRtkDir,
+  getPathValue,
+  getRtkBinaryName,
+  isRtkEnabled,
+  resolveSystemRtkPath,
+} from "./rtk-shared.js";
 
-const GSD_RTK_PATH_ENV = "GSD_RTK_PATH";
-const GSD_RTK_DISABLED_ENV = "GSD_RTK_DISABLED";
-const RTK_TELEMETRY_DISABLED_ENV = "RTK_TELEMETRY_DISABLED";
+const GSD_RTK_REWRITE_TIMEOUT_MS_ENV = "GSD_RTK_REWRITE_TIMEOUT_MS";
 const RTK_REWRITE_TIMEOUT_MS = 5_000;
 
-function isTruthy(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
+export { isRtkEnabled };
 
-export function isRtkEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return !isTruthy(env[GSD_RTK_DISABLED_ENV]);
+function getRewriteTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const configured = Number.parseInt(env[GSD_RTK_REWRITE_TIMEOUT_MS_ENV] ?? "", 10);
+  if (Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+  return RTK_REWRITE_TIMEOUT_MS;
 }
 
 export function buildRtkEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -23,44 +30,6 @@ export function buildRtkEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Proces
     ...env,
     [RTK_TELEMETRY_DISABLED_ENV]: "1",
   };
-}
-
-function getManagedRtkDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env.GSD_HOME || join(homedir(), ".gsd"), "agent", "bin");
-}
-
-function getRtkBinaryName(platform: NodeJS.Platform = process.platform): string {
-  return platform === "win32" ? "rtk.exe" : "rtk";
-}
-
-function getPathValue(env: NodeJS.ProcessEnv): string | undefined {
-  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path");
-  return pathKey ? env[pathKey] : env.PATH;
-}
-
-function resolvePathCandidates(pathValue: string | undefined): string[] {
-  if (!pathValue) return [];
-  return pathValue
-    .split(delimiter)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function resolveSystemRtkPath(pathValue: string | undefined, platform: NodeJS.Platform = process.platform): string | null {
-  const candidates = platform === "win32"
-    ? ["rtk.exe", "rtk.cmd", "rtk.bat", "rtk"]
-    : ["rtk"];
-
-  for (const dir of resolvePathCandidates(pathValue)) {
-    for (const candidate of candidates) {
-      const fullPath = join(dir, candidate);
-      if (existsSync(fullPath)) {
-        return fullPath;
-      }
-    }
-  }
-
-  return null;
 }
 
 export interface ResolveRtkBinaryPathOptions {
@@ -96,18 +65,27 @@ export function resolveRtkBinaryPath(options: ResolveRtkBinaryPathOptions = {}):
   return resolveSystemRtkPath(options.pathValue ?? getPathValue(env), platform);
 }
 
-export function rewriteCommandWithRtk(command: string, env: NodeJS.ProcessEnv = process.env): string {
+interface RewriteCommandOptions {
+  binaryPath?: string;
+  env?: NodeJS.ProcessEnv;
+  spawnSyncImpl?: typeof spawnSync;
+}
+
+export function rewriteCommandWithRtk(command: string, options: RewriteCommandOptions = {}): string {
+  const env = options.env ?? process.env;
+
   if (!command.trim()) return command;
   if (!isRtkEnabled(env)) return command;
 
-  const binaryPath = resolveRtkBinaryPath({ env });
+  const binaryPath = options.binaryPath ?? resolveRtkBinaryPath({ env });
   if (!binaryPath) return command;
 
-  const result = spawnSync(binaryPath, ["rewrite", command], {
+  const run = options.spawnSyncImpl ?? spawnSync;
+  const result = run(binaryPath, ["rewrite", command], {
     encoding: "utf-8",
     env: buildRtkEnv(env),
     stdio: ["ignore", "pipe", "ignore"],
-    timeout: RTK_REWRITE_TIMEOUT_MS,
+    timeout: getRewriteTimeoutMs(env),
     // .cmd/.bat wrappers (used by fake-rtk in tests) require shell:true on Windows
     shell: /\.(cmd|bat)$/i.test(binaryPath),
   });

@@ -87,6 +87,16 @@ function WorkspaceChrome() {
     return () => window.clearTimeout(restoreTimer)
   }, [projectPath, viewRestored])
 
+  // Reset viewRestored when projectPath changes so the restore effect can
+  // fire for the newly-selected project (fixes #2711: tab reset on switch).
+  const prevProjectPath = useRef(projectPath)
+  useEffect(() => {
+    if (prevProjectPath.current !== projectPath) {
+      prevProjectPath.current = projectPath
+      setViewRestored(false)
+    }
+  }, [projectPath])
+
   // Persist view changes to sessionStorage
   useEffect(() => {
     if (!projectPath) return
@@ -235,6 +245,41 @@ function WorkspaceChrome() {
     detection.kind !== "active-gsd" &&
     detection.kind !== "empty-gsd"
 
+  // --- Unauthenticated gate ---
+  // Render a clear recovery screen before any workspace chrome is mounted so
+  // users who open a manually-typed URL (no #token= fragment) get actionable
+  // guidance instead of a cascade of 401 errors.
+  if (workspace.bootStatus === "unauthenticated") {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-6 bg-background p-8 text-center">
+        <Image
+          src="/logo-black.svg"
+          alt="GSD"
+          width={57}
+          height={16}
+          className="shrink-0 h-4 w-auto dark:hidden"
+        />
+        <Image
+          src="/logo-white.svg"
+          alt="GSD"
+          width={57}
+          height={16}
+          className="shrink-0 h-4 w-auto hidden dark:block"
+        />
+        <div className="flex flex-col items-center gap-2">
+          <h1 className="text-lg font-semibold text-foreground">Authentication Required</h1>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            This workspace requires an auth token. Copy the full URL from your terminal
+            (including the{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">#token=…</code>{" "}
+            part) or restart with{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">gsd --web</code>.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border bg-card px-2 md:px-4">
@@ -267,7 +312,7 @@ function WorkspaceChrome() {
               beta
             </Badge>
           </div>
-          <span className="hidden sm:inline text-2xl font-thin text-muted-foreground/50 leading-none select-none">/</span>
+          <span className="hidden sm:inline text-2xl font-thin text-muted-foreground leading-none select-none">/</span>
           <span className="hidden sm:inline text-sm text-muted-foreground truncate" data-testid="workspace-project-cwd" title={projectPath ?? undefined}>
             {isConnecting ? (
               <Skeleton className="inline-block h-4 w-28 align-middle" />
@@ -427,7 +472,7 @@ function WorkspaceChrome() {
               >
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <span className="font-medium text-foreground">Terminal</span>
-                  <span className="text-[10px] text-muted-foreground/50">
+                  <span className="text-[10px] text-muted-foreground">
                     {isTerminalExpanded ? "▼" : "▲"}
                   </span>
                 </div>
@@ -519,9 +564,18 @@ function ProjectAwareWorkspace() {
   const activeProjectCwd = useSyncExternalStore(manager.subscribe, manager.getSnapshot, manager.getSnapshot)
   const activeStore = activeProjectCwd ? manager.getActiveStore() : null
 
-  // Shut down all projects when the tab actually closes
+  // Shut down all projects when the tab actually closes.
+  // IMPORTANT: pagehide fires both on real page unload AND on mobile/Safari
+  // tab switches (bfcache entry).  When event.persisted is true the page is
+  // being cached for later reuse — the server must stay alive.  Only send
+  // the shutdown beacon when the page is truly being discarded.
   useEffect(() => {
-    const handlePageHide = () => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        // Page is entering bfcache (tab switch, app backgrounding) — keep
+        // the server alive so PTY sessions survive.
+        return
+      }
       // sendBeacon cannot set custom headers, so pass the auth token as a
       // query parameter instead (the proxy accepts `_token` as a fallback).
       const token = getAuthToken()

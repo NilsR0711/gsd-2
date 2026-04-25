@@ -7,36 +7,46 @@
  */
 
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 
 import {
   transaction,
   getMilestone,
   getMilestoneSlices,
   getSliceTasks,
-  _getAdapter,
+  updateMilestoneStatus,
 } from "../gsd-db.js";
 import { resolveMilestonePath, clearPathCache } from "../paths.js";
+import { isClosedStatus } from "../status-guards.js";
 import { saveFile, clearParseCache } from "../files.js";
 import { invalidateStateCache } from "../state.js";
-import { renderAllProjections } from "../workflow-projections.js";
+import { renderAllProjections, stripIdPrefix } from "../workflow-projections.js";
 import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
+import { logWarning, logError } from "../workflow-logger.js";
 
 export interface CompleteMilestoneParams {
   milestoneId: string;
   title: string;
   oneLiner: string;
   narrative: string;
-  successCriteriaResults: string;
-  definitionOfDoneResults: string;
-  requirementOutcomes: string;
-  keyDecisions: string[];
-  keyFiles: string[];
-  lessonsLearned: string[];
-  followUps: string;
-  deviations: string;
   verificationPassed: boolean;
+  /** @optional — defaults to "Not provided." when omitted by models with limited tool-calling */
+  successCriteriaResults?: string;
+  /** @optional — defaults to "Not provided." when omitted */
+  definitionOfDoneResults?: string;
+  /** @optional — defaults to "Not provided." when omitted */
+  requirementOutcomes?: string;
+  /** @optional — defaults to [] when omitted */
+  keyDecisions?: string[];
+  /** @optional — defaults to [] when omitted */
+  keyFiles?: string[];
+  /** @optional — defaults to [] when omitted */
+  lessonsLearned?: string[];
+  /** @optional — defaults to "None." when omitted */
+  followUps?: string;
+  /** @optional — defaults to "None." when omitted */
+  deviations?: string;
   /** Optional caller-provided identity for audit trail */
   actorName?: string;
   /** Optional caller-provided reason this action was triggered */
@@ -50,22 +60,28 @@ export interface CompleteMilestoneResult {
 
 function renderMilestoneSummaryMarkdown(params: CompleteMilestoneParams): string {
   const now = new Date().toISOString();
+  const displayTitle = stripIdPrefix(params.title, params.milestoneId);
 
-  const keyDecisionsYaml = params.keyDecisions.length > 0
-    ? params.keyDecisions.map(d => `  - ${d}`).join("\n")
+  // Apply defaults for optional enrichment fields (#2771)
+  const keyDecisions = params.keyDecisions ?? [];
+  const keyFiles = params.keyFiles ?? [];
+  const lessonsLearned = params.lessonsLearned ?? [];
+
+  const keyDecisionsYaml = keyDecisions.length > 0
+    ? keyDecisions.map(d => `  - ${d}`).join("\n")
     : "  - (none)";
 
-  const keyFilesYaml = params.keyFiles.length > 0
-    ? params.keyFiles.map(f => `  - ${f}`).join("\n")
+  const keyFilesYaml = keyFiles.length > 0
+    ? keyFiles.map(f => `  - ${f}`).join("\n")
     : "  - (none)";
 
-  const lessonsYaml = params.lessonsLearned.length > 0
-    ? params.lessonsLearned.map(l => `  - ${l}`).join("\n")
+  const lessonsYaml = lessonsLearned.length > 0
+    ? lessonsLearned.map(l => `  - ${l}`).join("\n")
     : "  - (none)";
 
   return `---
 id: ${params.milestoneId}
-title: "${params.title}"
+title: "${displayTitle}"
 status: complete
 completed_at: ${now}
 key_decisions:
@@ -76,7 +92,7 @@ lessons_learned:
 ${lessonsYaml}
 ---
 
-# ${params.milestoneId}: ${params.title}
+# ${params.milestoneId}: ${displayTitle}
 
 **${params.oneLiner}**
 
@@ -86,15 +102,15 @@ ${params.narrative}
 
 ## Success Criteria Results
 
-${params.successCriteriaResults}
+${params.successCriteriaResults ?? "Not provided."}
 
 ## Definition of Done Results
 
-${params.definitionOfDoneResults}
+${params.definitionOfDoneResults ?? "Not provided."}
 
 ## Requirement Outcomes
 
-${params.requirementOutcomes}
+${params.requirementOutcomes ?? "Not provided."}
 
 ## Deviations
 
@@ -134,7 +150,7 @@ export async function handleCompleteMilestone(
       guardError = `milestone not found: ${params.milestoneId}`;
       return;
     }
-    if (milestone.status === "complete" || milestone.status === "done") {
+    if (isClosedStatus(milestone.status)) {
       guardError = `milestone ${params.milestoneId} is already complete`;
       return;
     }
@@ -146,7 +162,7 @@ export async function handleCompleteMilestone(
       return;
     }
 
-    const incompleteSlices = slices.filter(s => s.status !== "complete" && s.status !== "done");
+    const incompleteSlices = slices.filter(s => !isClosedStatus(s.status));
     if (incompleteSlices.length > 0) {
       const incompleteIds = incompleteSlices.map(s => `${s.id} (status: ${s.status})`).join(", ");
       guardError = `incomplete slices: ${incompleteIds}`;
@@ -156,7 +172,7 @@ export async function handleCompleteMilestone(
     // Deep check: verify all tasks in all slices are complete
     for (const slice of slices) {
       const tasks = getSliceTasks(params.milestoneId, slice.id);
-      const incompleteTasks = tasks.filter(t => t.status !== "complete" && t.status !== "done");
+      const incompleteTasks = tasks.filter(t => !isClosedStatus(t.status));
       if (incompleteTasks.length > 0) {
         const ids = incompleteTasks.map(t => `${t.id} (status: ${t.status})`).join(", ");
         guardError = `slice ${slice.id} has incomplete tasks: ${ids}`;
@@ -165,13 +181,7 @@ export async function handleCompleteMilestone(
     }
 
     // All guards passed — perform write
-    const adapter = _getAdapter()!;
-    adapter.prepare(
-      `UPDATE milestones SET status = 'complete', completed_at = :completed_at WHERE id = :mid`,
-    ).run({
-      ":completed_at": completedAt,
-      ":mid": params.milestoneId,
-    });
+    updateMilestoneStatus(params.milestoneId, 'complete', completedAt);
   });
 
   if (guardError) {
@@ -192,21 +202,20 @@ export async function handleCompleteMilestone(
     summaryPath = join(manualDir, `${params.milestoneId}-SUMMARY.md`);
   }
 
-  try {
-    await saveFile(summaryPath, summaryMd);
-  } catch (renderErr) {
-    // Disk render failed — roll back DB status so state stays consistent
-    process.stderr.write(
-      `gsd-db: complete_milestone — disk render failed, rolling back DB status: ${(renderErr as Error).message}\n`,
-    );
-    const rollbackAdapter = _getAdapter();
-    if (rollbackAdapter) {
-      rollbackAdapter.prepare(
-        `UPDATE milestones SET status = 'active', completed_at = NULL WHERE id = :mid`,
-      ).run({ ":mid": params.milestoneId });
+  // Guard (#4598): if SUMMARY.md already exists on disk, do not overwrite it.
+  // This handles re-dispatch scenarios (DB/disk state divergence) where a prior
+  // completion already wrote the file. Overwriting would silently destroy the
+  // richer content the agent produced during the original completion run.
+  if (!existsSync(summaryPath)) {
+    try {
+      await saveFile(summaryPath, summaryMd);
+    } catch (renderErr) {
+      // Disk render failed — roll back DB status so state stays consistent
+      logWarning("tool", `complete_milestone — disk render failed, rolling back DB status: ${(renderErr as Error).message}`);
+      updateMilestoneStatus(params.milestoneId, 'active', null);
+      invalidateStateCache();
+      return { error: `disk render failed: ${(renderErr as Error).message}` };
     }
-    invalidateStateCache();
-    return { error: `disk render failed: ${(renderErr as Error).message}` };
   }
 
   // Invalidate all caches
@@ -215,9 +224,19 @@ export async function handleCompleteMilestone(
   clearParseCache();
 
   // ── Post-mutation hook: projections, manifest, event log ───────────────
+  // Separate try/catch per step so a projection failure doesn't prevent
+  // the event log entry (critical for worktree reconciliation).
   try {
     await renderAllProjections(basePath, params.milestoneId);
+  } catch (projErr) {
+    logWarning("tool", `complete-milestone projection warning: ${(projErr as Error).message}`);
+  }
+  try {
     writeManifest(basePath);
+  } catch (mfErr) {
+    logWarning("tool", `complete-milestone manifest warning: ${(mfErr as Error).message}`);
+  }
+  try {
     appendEvent(basePath, {
       cmd: "complete-milestone",
       params: { milestoneId: params.milestoneId },
@@ -226,10 +245,8 @@ export async function handleCompleteMilestone(
       actor_name: params.actorName,
       trigger_reason: params.triggerReason,
     });
-  } catch (hookErr) {
-    process.stderr.write(
-      `gsd: complete-milestone post-mutation hook warning: ${(hookErr as Error).message}\n`,
-    );
+  } catch (eventErr) {
+    logError("tool", `complete-milestone event log FAILED — completion invisible to reconciliation`, { error: (eventErr as Error).message });
   }
 
   return {

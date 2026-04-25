@@ -1,8 +1,11 @@
 // GSD Extension — Workflow Logger Tests
 // Tests for the centralized warning/error accumulator.
 
-import { describe, test, beforeEach } from "node:test";
+import { describe, test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { makeTempDir, cleanup } from "./test-utils.ts";
 import {
   logWarning,
   logError,
@@ -14,6 +17,8 @@ import {
   hasAnyIssues,
   summarizeLogs,
   formatForNotification,
+  setLogBasePath,
+  setStderrLoggingEnabled,
   _resetLogs,
 } from "../workflow-logger.ts";
 
@@ -213,12 +218,64 @@ describe("workflow-logger", () => {
       assert.ok(formatted.includes("\n"));
     });
 
-    test("does not include context in formatted output", () => {
+    test("includes context fields in formatted output", () => {
       logError("tool", "failed", { cmd: "complete_task" });
       const entries = drainLogs();
       const formatted = formatForNotification(entries);
-      assert.equal(formatted, "[tool] failed");
-      assert.ok(!formatted.includes("complete_task"));
+      assert.equal(formatted, "[tool] failed (cmd: complete_task)");
+    });
+
+    test("excludes error key from context to avoid redundancy", () => {
+      logError("tool", "disk write failed", { error: "ENOSPC", path: "/tmp/foo" });
+      const entries = drainLogs();
+      const formatted = formatForNotification(entries);
+      assert.ok(formatted.includes("path: /tmp/foo"));
+      assert.ok(!formatted.includes("error: ENOSPC"));
+    });
+
+    test("formats entry without context unchanged", () => {
+      logError("intercept", "blocked write");
+      const entries = drainLogs();
+      const formatted = formatForNotification(entries);
+      assert.equal(formatted, "[intercept] blocked write");
+    });
+  });
+
+  describe("audit log persistence", () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = makeTempDir("wl-audit-");
+    });
+
+    afterEach(() => {
+      setLogBasePath("");
+      cleanup(dir);
+    });
+
+    test("writes entry to .gsd/audit-log.jsonl after setLogBasePath", () => {
+      setLogBasePath(dir);
+      logError("engine", "audit test entry");
+
+      const auditPath = join(dir, ".gsd", "audit-log.jsonl");
+      assert.ok(existsSync(auditPath), "audit-log.jsonl should exist");
+      const content = readFileSync(auditPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      assert.equal(entry.severity, "error");
+      assert.equal(entry.component, "engine");
+      assert.equal(entry.message, "audit test entry");
+    });
+
+    test("_resetLogs does not clear the audit base path", () => {
+      setLogBasePath(dir);
+      _resetLogs();
+      logError("engine", "post-reset entry");
+
+      const auditPath = join(dir, ".gsd", "audit-log.jsonl");
+      assert.ok(existsSync(auditPath), "audit-log.jsonl should exist after _resetLogs");
+      const content = readFileSync(auditPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      assert.equal(entry.message, "post-reset entry");
     });
   });
 
@@ -234,6 +291,54 @@ describe("workflow-logger", () => {
       // First MAX entries dropped; oldest surviving = msg-(OVER-MAX)
       assert.equal(entries[0].message, `msg-${OVER - MAX}`);
       assert.equal(entries[MAX - 1].message, `msg-${OVER - 1}`);
+    });
+  });
+
+  describe("new log components (db, dispatch)", () => {
+    test("logError with 'db' component stores correct component", () => {
+      logError("db", "failed to copy DB to worktree", { error: "ENOENT" });
+      const entries = peekLogs();
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].severity, "error");
+      assert.equal(entries[0].component, "db");
+      assert.equal(entries[0].message, "failed to copy DB to worktree");
+      assert.deepEqual(entries[0].context, { error: "ENOENT" });
+    });
+
+    test("logError with 'dispatch' component stores correct component", () => {
+      logError("dispatch", "reactive graph derivation failed", { error: "timeout" });
+      const entries = peekLogs();
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].severity, "error");
+      assert.equal(entries[0].component, "dispatch");
+      assert.deepEqual(entries[0].context, { error: "timeout" });
+    });
+
+    test("logWarning with 'reconcile' component for centralized logging path", () => {
+      logWarning("reconcile", "could not acquire sync lock — another reconciliation may be in progress");
+      const entries = peekLogs();
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].severity, "warn");
+      assert.equal(entries[0].component, "reconcile");
+    });
+
+    test("summarizeLogs includes db and dispatch entries", () => {
+      logError("db", "worktree DB reconciliation failed: path contains unsafe characters");
+      logWarning("dispatch", "graph derivation timeout");
+      const summary = summarizeLogs()!;
+      assert.ok(summary.includes("1 error(s)"));
+      assert.ok(summary.includes("1 warning(s)"));
+      assert.ok(summary.includes("unsafe characters"));
+      assert.ok(summary.includes("graph derivation timeout"));
+    });
+
+    test("formatForNotification renders db and dispatch components", () => {
+      logError("db", "copy failed");
+      logWarning("dispatch", "slow derivation");
+      const entries = drainLogs();
+      const formatted = formatForNotification(entries);
+      assert.ok(formatted.includes("[db] copy failed"));
+      assert.ok(formatted.includes("[dispatch] slow derivation"));
     });
   });
 
@@ -270,6 +375,21 @@ describe("workflow-logger", () => {
 
       logError("tool", "failed", { cmd: "complete_task" });
       assert.ok(written[0].includes('"cmd":"complete_task"'));
+    });
+
+    test("suppresses stderr when disabled", (t) => {
+      const written: string[] = [];
+      const orig = process.stderr.write.bind(process.stderr);
+      const previous = setStderrLoggingEnabled(false);
+      // @ts-ignore — patching for test
+      process.stderr.write = (chunk: string) => { written.push(chunk); return true; };
+      t.after(() => {
+        process.stderr.write = orig;
+        setStderrLoggingEnabled(previous);
+      });
+
+      logWarning("engine", "hidden warning");
+      assert.deepEqual(written, []);
     });
   });
 });

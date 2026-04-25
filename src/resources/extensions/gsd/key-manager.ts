@@ -35,6 +35,12 @@ export interface ProviderInfo {
 export const PROVIDER_REGISTRY: ProviderInfo[] = [
   // LLM Providers
   { id: "anthropic",        label: "Anthropic (Claude)",      category: "llm", envVar: "ANTHROPIC_API_KEY",      prefixes: ["sk-ant-"], hasOAuth: true, dashboardUrl: "console.anthropic.com" },
+  // Claude Code CLI: routes through the local `claude` binary — no API key,
+  // authentication is handled by the CLI's own OAuth flow.
+  // Referenced by doctor-providers.ts, auto-model-selection.ts, and others;
+  // must be in the canonical registry so all consumers see the same catalog.
+  // See: https://github.com/gsd-build/gsd-2/issues/4541
+  { id: "claude-code",      label: "Claude Code CLI",         category: "llm",                                   hasOAuth: true },
   { id: "openai",           label: "OpenAI",                  category: "llm", envVar: "OPENAI_API_KEY",         prefixes: ["sk-"],     dashboardUrl: "platform.openai.com/api-keys" },
   { id: "github-copilot",   label: "GitHub Copilot",          category: "llm", envVar: "GITHUB_TOKEN",           hasOAuth: true },
   { id: "openai-codex",     label: "ChatGPT Plus/Pro (Codex)",category: "llm",                                   hasOAuth: true },
@@ -45,10 +51,14 @@ export const PROVIDER_REGISTRY: ProviderInfo[] = [
   { id: "xai",              label: "xAI (Grok)",              category: "llm", envVar: "XAI_API_KEY",            dashboardUrl: "console.x.ai" },
   { id: "openrouter",       label: "OpenRouter",              category: "llm", envVar: "OPENROUTER_API_KEY",     dashboardUrl: "openrouter.ai/keys" },
   { id: "mistral",          label: "Mistral",                 category: "llm", envVar: "MISTRAL_API_KEY",        dashboardUrl: "console.mistral.ai" },
+  { id: "minimax",          label: "MiniMax",                 category: "llm", envVar: "MINIMAX_API_KEY",        dashboardUrl: "platform.minimax.io" },
+  { id: "minimax-cn",       label: "MiniMax CN",              category: "llm", envVar: "MINIMAX_CN_API_KEY",     dashboardUrl: "platform.minimax.io" },
   { id: "ollama-cloud",     label: "Ollama Cloud",            category: "llm", envVar: "OLLAMA_API_KEY" },
   { id: "custom-openai",    label: "Custom (OpenAI-compat)",  category: "llm", envVar: "CUSTOM_OPENAI_API_KEY" },
   { id: "cerebras",         label: "Cerebras",                category: "llm", envVar: "CEREBRAS_API_KEY" },
   { id: "azure-openai-responses", label: "Azure OpenAI",      category: "llm", envVar: "AZURE_OPENAI_API_KEY" },
+  { id: "alibaba-coding-plan", label: "Alibaba Coding Plan",  category: "llm", envVar: "ALIBABA_API_KEY",      dashboardUrl: "bailian.console.aliyun.com" },
+  { id: "alibaba-dashscope",   label: "Alibaba DashScope",    category: "llm", envVar: "DASHSCOPE_API_KEY",    dashboardUrl: "dashscope.console.aliyun.com" },
 
   // Tool Keys
   { id: "context7",  label: "Context7 Docs",     category: "tool", envVar: "CONTEXT7_API_KEY",  dashboardUrl: "context7.com/dashboard" },
@@ -150,22 +160,13 @@ export interface KeyStatus {
  */
 export function getAllKeyStatuses(auth: AuthStorage): KeyStatus[] {
   return PROVIDER_REGISTRY.map((provider) => {
-    const creds = auth.getCredentialsForProvider(provider.id);
+    const rawCreds = auth.getCredentialsForProvider(provider.id);
+    // Filter out empty-key entries (left by legacy removeProviderToken or skipped onboarding)
+    const creds = rawCreds.filter((c) => !(c.type === "api_key" && !(c as ApiKeyCredential).key));
     const envKey = provider.envVar ? process.env[provider.envVar] : undefined;
 
     if (creds.length > 0) {
       const firstCred = creds[0];
-      // Skip empty keys (from skipped onboarding)
-      if (firstCred.type === "api_key" && !(firstCred as ApiKeyCredential).key) {
-        return {
-          provider,
-          configured: false,
-          source: "none" as const,
-          credentialCount: 0,
-          description: "empty key (skipped setup)",
-          backedOff: false,
-        };
-      }
       const desc =
         creds.length > 1
           ? `${creds.length} keys (round-robin)`
@@ -275,7 +276,7 @@ export async function handleAddKey(
   } else {
     // Interactive provider picker
     const options = PROVIDER_REGISTRY.map((p) => {
-      const creds = auth.getCredentialsForProvider(p.id);
+      const creds = auth.getCredentialsForProvider(p.id).filter((c) => !(c.type === "api_key" && !(c as ApiKeyCredential).key));
       const existing = creds.length > 0 ? " (configured)" : "";
       return `[${p.category}] ${p.label}${existing}`;
     });
@@ -360,7 +361,7 @@ export async function handleRemoveKey(
   } else {
     // Show only configured providers
     const configured = PROVIDER_REGISTRY.filter((p) => {
-      const creds = auth.getCredentialsForProvider(p.id);
+      const creds = auth.getCredentialsForProvider(p.id).filter((c) => !(c.type === "api_key" && !(c as ApiKeyCredential).key));
       return creds.length > 0;
     });
 
@@ -486,6 +487,26 @@ const TEST_ENDPOINTS: Record<string, { url: string; method?: string; headers?: (
   mistral: {
     url: "https://api.mistral.ai/v1/models",
     headers: (key) => ({ Authorization: `Bearer ${key}` }),
+  },
+  minimax: {
+    url: "https://api.minimax.io/anthropic/v1/messages",
+    method: "POST",
+    headers: (key) => ({
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    }),
+    body: JSON.stringify({ model: "MiniMax-M2.7", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
+  },
+  "minimax-cn": {
+    url: "https://api.minimaxi.com/anthropic/v1/messages",
+    method: "POST",
+    headers: (key) => ({
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    }),
+    body: JSON.stringify({ model: "MiniMax-M2.7", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
   },
   openrouter: {
     url: "https://openrouter.ai/api/v1/models",
@@ -619,7 +640,7 @@ export async function handleRotateKey(
     // Show only configured API key providers
     const configured = PROVIDER_REGISTRY.filter((p) => {
       const creds = auth.getCredentialsForProvider(p.id);
-      return creds.some((c) => c.type === "api_key");
+      return creds.some((c) => c.type === "api_key" && (c as ApiKeyCredential).key);
     });
 
     if (configured.length === 0) {
@@ -788,7 +809,7 @@ export function runKeyDoctor(auth: AuthStorage): DoctorFinding[] {
     if (!envValue) continue;
 
     const creds = auth.getCredentialsForProvider(provider.id);
-    const apiKey = creds.find((c) => c.type === "api_key") as ApiKeyCredential | undefined;
+    const apiKey = creds.find((c) => c.type === "api_key" && (c as ApiKeyCredential).key) as ApiKeyCredential | undefined;
     if (apiKey?.key && apiKey.key !== envValue) {
       findings.push({
         severity: "warning",

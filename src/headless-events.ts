@@ -3,7 +3,49 @@
  *
  * Detects terminal notifications, blocked notifications, milestone-ready signals,
  * and classifies commands as quick (single-turn) vs long-running.
+ *
+ * Also defines exit code constants and the status→exit-code mapping function.
  */
+
+// ---------------------------------------------------------------------------
+// Exit Code Constants
+// ---------------------------------------------------------------------------
+
+export const EXIT_SUCCESS = 0
+export const EXIT_ERROR = 1
+export const EXIT_BLOCKED = 10
+export const EXIT_CANCELLED = 11
+
+/**
+ * Map a headless session status string to its standardized exit code.
+ *
+ *   success   → 0
+ *   complete  → 0
+ *   completed → 0
+ *   error     → 1
+ *   timeout   → 1
+ *   blocked   → 10
+ *   cancelled → 11
+ *
+ * Unknown statuses default to EXIT_ERROR (1).
+ */
+export function mapStatusToExitCode(status: string): number {
+  switch (status) {
+    case 'success':
+    case 'complete':
+    case 'completed':
+      return EXIT_SUCCESS
+    case 'error':
+    case 'timeout':
+      return EXIT_ERROR
+    case 'blocked':
+      return EXIT_BLOCKED
+    case 'cancelled':
+      return EXIT_CANCELLED
+    default:
+      return EXIT_ERROR
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Completion Detection
@@ -28,6 +70,7 @@ export const IDLE_TIMEOUT_MS = 15_000
 // between tool calls (e.g. after mkdir, before writing files). Use a
 // longer idle timeout to avoid killing the session prematurely (#808).
 export const NEW_MILESTONE_IDLE_TIMEOUT_MS = 120_000
+const INTERACTIVE_HEADLESS_TOOLS = new Set(['ask_user_questions', 'secure_env_collect'])
 
 export function isTerminalNotification(event: Record<string, unknown>): boolean {
   if (event.type !== 'extension_ui_request' || event.method !== 'notify') return false
@@ -47,6 +90,14 @@ export function isMilestoneReadyNotification(event: Record<string, unknown>): bo
   return /milestone\s+m\d+.*ready/i.test(String(event.message ?? ''))
 }
 
+export function isInteractiveHeadlessTool(toolName: string | undefined): boolean {
+  return INTERACTIVE_HEADLESS_TOOLS.has(String(toolName ?? ''))
+}
+
+export function shouldArmHeadlessIdleTimeout(toolCallCount: number, interactiveToolCount: number): boolean {
+  return toolCallCount > 0 && interactiveToolCount === 0
+}
+
 // ---------------------------------------------------------------------------
 // Quick Command Detection
 // ---------------------------------------------------------------------------
@@ -60,6 +111,9 @@ export const QUICK_COMMANDS = new Set([
   'triage', 'visualize',
 ])
 
-export function isQuickCommand(command: string): boolean {
-  return QUICK_COMMANDS.has(command)
+const QUICK_WORKFLOW_SUBCOMMANDS = new Set(['list', 'validate'])
+
+export function isQuickCommand(command: string, commandArgs: readonly string[] = []): boolean {
+  if (QUICK_COMMANDS.has(command)) return true
+  return command === 'workflow' && QUICK_WORKFLOW_SUBCOMMANDS.has(commandArgs[0] ?? '')
 }

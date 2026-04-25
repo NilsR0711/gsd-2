@@ -149,3 +149,75 @@ test('empty filter blocks all events', () => {
   assert.ok(!shouldEmit('agent_end'))
   assert.ok(!shouldEmit('message_update'))
 })
+
+import {
+  mapStatusToExitCode,
+  EXIT_SUCCESS,
+  EXIT_ERROR,
+  EXIT_BLOCKED,
+  EXIT_CANCELLED,
+  isInteractiveHeadlessTool,
+  shouldArmHeadlessIdleTimeout,
+} from '../headless-events.js'
+
+// ─── mapStatusToExitCode ─────────────────────────────────────────────────
+
+test('mapStatusToExitCode: "complete" returns EXIT_SUCCESS', () => {
+  assert.equal(mapStatusToExitCode('complete'), EXIT_SUCCESS)
+})
+
+test('mapStatusToExitCode: "completed" returns EXIT_SUCCESS', () => {
+  assert.equal(mapStatusToExitCode('completed'), EXIT_SUCCESS)
+})
+
+test('mapStatusToExitCode: "success" returns EXIT_SUCCESS', () => {
+  assert.equal(mapStatusToExitCode('success'), EXIT_SUCCESS)
+})
+
+test('mapStatusToExitCode: "error" returns EXIT_ERROR', () => {
+  assert.equal(mapStatusToExitCode('error'), EXIT_ERROR)
+})
+
+test('mapStatusToExitCode: "timeout" returns EXIT_ERROR', () => {
+  assert.equal(mapStatusToExitCode('timeout'), EXIT_ERROR)
+})
+
+test('mapStatusToExitCode: "blocked" returns EXIT_BLOCKED', () => {
+  assert.equal(mapStatusToExitCode('blocked'), EXIT_BLOCKED)
+})
+
+test('mapStatusToExitCode: "cancelled" returns EXIT_CANCELLED', () => {
+  assert.equal(mapStatusToExitCode('cancelled'), EXIT_CANCELLED)
+})
+
+test('mapStatusToExitCode: unknown status returns EXIT_ERROR', () => {
+  assert.equal(mapStatusToExitCode('unknown'), EXIT_ERROR)
+})
+
+test('isInteractiveHeadlessTool: ask_user_questions is interactive', () => {
+  assert.equal(isInteractiveHeadlessTool('ask_user_questions'), true)
+})
+
+test('isInteractiveHeadlessTool: secure_env_collect is interactive', () => {
+  assert.equal(isInteractiveHeadlessTool('secure_env_collect'), true)
+})
+
+test('isInteractiveHeadlessTool: non-interactive tools stay false', () => {
+  assert.equal(isInteractiveHeadlessTool('bash'), false)
+  assert.equal(isInteractiveHeadlessTool(undefined), false)
+})
+
+test('shouldArmHeadlessIdleTimeout: arms after tool calls when no interactive tool is in flight', () => {
+  assert.equal(shouldArmHeadlessIdleTimeout(1, 0), true)
+  assert.equal(shouldArmHeadlessIdleTimeout(3, 0), true)
+})
+
+test('shouldArmHeadlessIdleTimeout: stays disarmed while interactive tools are in flight (#3714)', () => {
+  assert.equal(shouldArmHeadlessIdleTimeout(1, 1), false)
+  assert.equal(shouldArmHeadlessIdleTimeout(5, 2), false)
+})
+
+test('shouldArmHeadlessIdleTimeout: stays disarmed before any tool call has started', () => {
+  assert.equal(shouldArmHeadlessIdleTimeout(0, 0), false)
+  assert.equal(shouldArmHeadlessIdleTimeout(0, 1), false)
+})
