@@ -10,7 +10,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildParams, convertMessages } from "./anthropic-shared.js";
-import type { Context, Message, Model } from "../types.js";
+import type { Context, Message, Model, Tool } from "../types.js";
 import type { AnthropicApi } from "./anthropic-shared.js";
 
 // Minimal model stub — convertMessages only reads `input` to decide whether to
@@ -27,6 +27,8 @@ function userMsg(text: string, opts: { cacheBreakpoint?: boolean } = {}): Messag
 	} as Message;
 }
 
+/** Produces a UserMessage whose content is an array of text blocks —
+ * the production shape emitted by `convertToLlm()` for compaction summaries. */
 function userMsgArray(text: string, opts: { cacheBreakpoint?: boolean } = {}): Message {
 	return {
 		role: "user",
@@ -102,17 +104,27 @@ describe("convertMessages — cache breakpoints (#5027)", () => {
 		assert.equal(hasCacheControl(result, result.length - 1), true, "last msg still gets the volatile-suffix anchor");
 	});
 
-	test("array-backed user cacheBreakpoint message: boundary and last user get breakpoints", () => {
+	test("array-content cacheBreakpoint message: breakpoint is applied (production shape for compaction summary)", () => {
+		// convertToLlm() emits compaction summaries as content:[{type:"text",...}];
+		// this exercises the array-backed branch in anthropic-shared.ts.
 		const result = convertMessages(
 			[
 				userMsgArray("[COMPACTION SUMMARY]", { cacheBreakpoint: true }),
+				assistantMsg("post-compaction response"),
 				userMsg("post-compaction turn"),
 			],
 			model,
 			false,
 			cacheControl,
 		);
-		assert.equal(hasCacheControl(result, 0), true, "array-backed compaction boundary gets a breakpoint");
+		const compactionIdx = result.findIndex(
+			(p) =>
+				p.role === "user" &&
+				Array.isArray(p.content) &&
+				(p.content as any)[0]?.text?.includes("COMPACTION SUMMARY"),
+		);
+		assert.ok(compactionIdx >= 0, "compaction summary param should be present");
+		assert.equal(hasCacheControl(result, compactionIdx), true, "array-content boundary gets cache_control");
 		assert.equal(hasCacheControl(result, result.length - 1), true, "last msg still gets the volatile-suffix anchor");
 	});
 
@@ -163,6 +175,22 @@ describe("convertMessages — cache breakpoints (#5027)", () => {
 		for (let i = 0; i < result.length; i++) {
 			assert.equal(hasCacheControl(result, i), false, `index ${i} should have no cache_control`);
 		}
+	});
+
+	test("array-content cacheBreakpoint on last message: deduplication guard prevents double application", () => {
+		// The boundary IS the last message — both anchors target the same param,
+		// so cache_control should appear exactly once.
+		const result = convertMessages(
+			[userMsg("prior turn"), userMsgArray("[BOUNDARY AS LAST]", { cacheBreakpoint: true })],
+			model,
+			false,
+			cacheControl,
+		);
+		const lastParam = result[result.length - 1];
+		assert.ok(lastParam && Array.isArray(lastParam.content), "last param has array content");
+		const cacheBlocks = (lastParam!.content as any[]).filter((b) => b.cache_control);
+		assert.equal(cacheBlocks.length, 1, "cache_control applied exactly once");
+		assert.equal(hasCacheControl(result, 0), false, "prior turn has no cache_control");
 	});
 });
 
@@ -220,30 +248,34 @@ describe("buildParams — 4-breakpoint limit safety in OAuth + boundary scenario
 		assert.equal(count, 3);
 	});
 
-	test("OAuth + system prompt + tools + boundary + last user: ≤4 breakpoints", () => {
+	test("OAuth + system prompt + tools + boundary + last user: exactly 4 breakpoints (ceiling)", () => {
+		// Worst-case breakpoint budget:
+		//   system(user prompt, 1) + last tool(1) + boundary(1) + last user(1) = 4.
+		// The "You are Claude Code" header intentionally carries NO cache_control
+		// when a user systemPrompt is present (#5027), which keeps us at 4 rather than 5.
+		const tool: Tool = {
+			name: "Read",
+			description: "Read a file from disk.",
+			parameters: {
+				type: "object" as const,
+				properties: {
+					path: { type: "string" },
+				},
+				required: ["path"],
+			} as any,
+		};
 		const ctx: Context = {
 			messages: [
 				userMsg("[COMPACTION SUMMARY]", { cacheBreakpoint: true }),
 				userMsg("post-compaction turn"),
 			],
 			systemPrompt: "You are a helpful coding assistant.",
-			tools: [
-				({
-					name: "Read",
-					description: "Read a file from disk.",
-					parameters: {
-						type: "object" as const,
-						properties: {
-							path: { type: "string" },
-						},
-						required: ["path"],
-					},
-				}) as any,
-			],
+			tools: [tool],
 		} as Context;
 		const params = buildParams(buildParamsModel, ctx, true) as any;
 		const count = countBreakpoints(params);
 		assert.ok(count <= 4, `must stay under Anthropic's 4-breakpoint limit, got ${count}`);
+		// system(1) + tool(1) + boundary(1) + last-user(1) = 4 exactly.
 		assert.equal(count, 4);
 	});
 
