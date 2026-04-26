@@ -625,11 +625,16 @@ export function shouldBlockPlanningUnit(
     return { block: true, reason: blockReason(unitType, policy.mode, `tool "${tool}" is not on the read-only allowlist`) };
   }
 
-  // planning / docs modes share the same surface for safe tools, bash, and subagent.
+  // planning / planning-dispatch / docs modes share the same surface for safe tools, bash, and subagent.
   if (PLANNING_SAFE_TOOLS.has(tool)) return { block: false };
   if (tool.startsWith("gsd_")) return { block: false };
 
   if (PLANNING_SUBAGENT_TOOLS.has(tool)) {
+    // planning-dispatch is the explicit opt-in for units that benefit from
+    // delegation (scout for recon, planner for sub-decomposition). Per-agent
+    // allowlisting is a future enhancement; today we allow the dispatch and
+    // rely on the prompt to steer toward read-only specialists.
+    if (policy.mode === "planning-dispatch") return { block: false };
     return { block: true, reason: blockReason(unitType, policy.mode, `subagent dispatch is not permitted in planning units`) };
   }
 

@@ -125,6 +125,7 @@ export type ToolsPolicy =
   | { readonly mode: "all" }
   | { readonly mode: "read-only" }
   | { readonly mode: "planning" }
+  | { readonly mode: "planning-dispatch" }
   | { readonly mode: "docs"; readonly allowedPathGlobs: readonly string[] };
 
 // ─── Computed-artifact registry (#4924 v2 contract) ───────────────────────
@@ -268,6 +269,14 @@ const COMMON_BUDGET_SMALL = 250_000;    // ~65K tokens
 
 const TOOLS_ALL: ToolsPolicy = { mode: "all" };
 const TOOLS_PLANNING: ToolsPolicy = { mode: "planning" };
+// Like TOOLS_PLANNING but permits subagent dispatch. Use for planning units
+// where delegation to scout/planner-style subagents materially improves the
+// plan (slice-level decomposition, design exploration). Per-agent allowlisting
+// is enforced at the prompt layer for now — plan-slice/refine-slice prompts
+// must steer the model toward read-only specialists (scout, planner, researcher)
+// and away from implementation-tier agents (worker, refactorer) that would
+// bypass the planning unit's write-isolation guarantees.
+const TOOLS_PLANNING_DISPATCH: ToolsPolicy = { mode: "planning-dispatch" };
 const TOOLS_DOCS: ToolsPolicy = {
   mode: "docs",
   // Globs are resolved relative to project basePath. The set is intentionally
@@ -376,7 +385,11 @@ export const UNIT_MANIFESTS: Record<UnitType, UnitContextManifest> = {
     memory: "prompt-relevant",
     codebaseMap: false,
     preferences: "active-only",
-    tools: TOOLS_PLANNING,
+    // planning-dispatch: completion is a high-leverage place to fan out to
+    // reviewer / security / tester subagents. They read the diff and report
+    // findings; they do not write user source. Write isolation to .gsd/ is
+    // preserved.
+    tools: TOOLS_PLANNING_DISPATCH,
     artifacts: {
       // #4780 landed slice-summary as excerpt for this unit; phase 2 of
       // the architecture will read this manifest as the source of truth
@@ -409,7 +422,10 @@ export const UNIT_MANIFESTS: Record<UnitType, UnitContextManifest> = {
     memory: "prompt-relevant",
     codebaseMap: true,
     preferences: "active-only",
-    tools: TOOLS_PLANNING,
+    // planning-dispatch: allows subagent dispatch so the planner can fan out
+    // to scout for codebase recon and to planner/decompose-style specialists
+    // for sub-decomposition. Write-isolation to .gsd/ is preserved.
+    tools: TOOLS_PLANNING_DISPATCH,
     artifacts: {
       inline: ["roadmap", "slice-research", "dependency-summaries", "requirements", "decisions", "templates"],
       excerpt: [],
@@ -423,7 +439,10 @@ export const UNIT_MANIFESTS: Record<UnitType, UnitContextManifest> = {
     memory: "prompt-relevant",
     codebaseMap: true,
     preferences: "active-only",
-    tools: TOOLS_PLANNING,
+    // See plan-slice — same rationale: dispatch to scout/planner-style
+    // specialists during refinement is materially better than re-doing recon
+    // inline.
+    tools: TOOLS_PLANNING_DISPATCH,
     artifacts: {
       inline: ["slice-plan", "slice-research", "dependency-summaries", "templates"],
       excerpt: [],
@@ -451,7 +470,10 @@ export const UNIT_MANIFESTS: Record<UnitType, UnitContextManifest> = {
     memory: "prompt-relevant",
     codebaseMap: false,
     preferences: "active-only",
-    tools: TOOLS_PLANNING,
+    // See complete-milestone — same rationale: dispatch to reviewer / security /
+    // tester subagents to fan out review work without bloating this unit's
+    // context.
+    tools: TOOLS_PLANNING_DISPATCH,
     artifacts: {
       // Phase 3 migration (#4782): matches today's actual
       // buildCompleteSlicePrompt inlining order. Overrides prepend +

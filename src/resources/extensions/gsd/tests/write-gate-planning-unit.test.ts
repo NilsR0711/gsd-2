@@ -15,6 +15,7 @@ import type { ToolsPolicy } from '../unit-context-manifest.ts';
 
 const BASE = join('/tmp', 'fake-project');
 const PLANNING: ToolsPolicy = { mode: 'planning' };
+const PLANNING_DISPATCH: ToolsPolicy = { mode: 'planning-dispatch' };
 const READ_ONLY: ToolsPolicy = { mode: 'read-only' };
 const ALL: ToolsPolicy = { mode: 'all' };
 const DOCS: ToolsPolicy = {
@@ -141,6 +142,27 @@ test('planning-unit: blocks subagent dispatch in planning mode', () => {
 test('planning-unit: blocks task tool (alt subagent name)', () => {
   const r = shouldBlockPlanningUnit('task', '', BASE, 'discuss-milestone', PLANNING);
   assert.strictEqual(r.block, true);
+});
+
+test('planning-dispatch: allows subagent dispatch (delegated recon/planner during slice planning)', () => {
+  const r = shouldBlockPlanningUnit('subagent', '', BASE, 'plan-slice', PLANNING_DISPATCH);
+  assert.strictEqual(r.block, false);
+});
+
+test('planning-dispatch: still blocks writes to user source (write isolation preserved)', () => {
+  const r = shouldBlockPlanningUnit('write', join(BASE, 'src', 'main.ts'), BASE, 'plan-slice', PLANNING_DISPATCH);
+  assert.strictEqual(r.block, true);
+});
+
+test('planning-dispatch: still allows writes inside .gsd/', () => {
+  const r = shouldBlockPlanningUnit(
+    'write',
+    join(BASE, '.gsd', 'milestones', 'M001', 'slices', 'S01', 'PLAN.md'),
+    BASE,
+    'plan-slice',
+    PLANNING_DISPATCH,
+  );
+  assert.strictEqual(r.block, false);
 });
 
 // ─── planning mode: pass-through tools ────────────────────────────────────
