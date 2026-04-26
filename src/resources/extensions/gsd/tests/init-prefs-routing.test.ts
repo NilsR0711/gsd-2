@@ -145,10 +145,25 @@ test("handlePrefsWizard — Advanced config writes min_request_interval_ms", asy
         notify: () => {},
         select: async (_label: string, options: string[]) => {
           const response = selectResponses.shift();
+          if (response === undefined) {
+            throw new Error(
+              `Unexpected extra select prompt in handlePrefsWizard flow: selectResponses queue exhausted for "${_label}" ` +
+                "(expected no additional select prompts)",
+            );
+          }
           if (response === "Advanced") return options.find((option) => option.startsWith("Advanced"));
           return response;
         },
-        input: async () => inputResponses.shift() ?? "",
+        input: async () => {
+          const response = inputResponses.shift();
+          if (response === undefined) {
+            throw new Error(
+              "Unexpected extra input prompt in handlePrefsWizard flow: inputResponses queue exhausted " +
+                "(expected no additional input prompts)",
+            );
+          }
+          return response;
+        },
       },
       waitForIdle: async () => {},
       reload: async () => {},
@@ -156,8 +171,10 @@ test("handlePrefsWizard — Advanced config writes min_request_interval_ms", asy
 
     await handlePrefsWizard(ctx as any, "project", {}, { pathOverride: path });
 
+    assert.equal(selectResponses.length, 0, "Expected all queued selectResponses to be consumed");
+    assert.equal(inputResponses.length, 0, "Expected all queued inputResponses to be consumed");
     const content = readFileSync(path, "utf-8");
-    assert.match(content, /min_request_interval_ms: 250/);
+    assert.match(content, /^min_request_interval_ms\s*:\s*250$/m);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
