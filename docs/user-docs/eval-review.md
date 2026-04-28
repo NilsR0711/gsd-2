@@ -11,7 +11,7 @@ The command is **audit-only** — it never modifies source code. Companion comma
 
 ## Usage
 
-```
+```bash
 /gsd eval-review <sliceId> [--force] [--show]
 ```
 
@@ -23,7 +23,7 @@ The command is **audit-only** — it never modifies source code. Companion comma
 
 Examples:
 
-```
+```bash
 /gsd eval-review S07
 /gsd eval-review S07 --force
 /gsd eval-review S07 --show
@@ -75,7 +75,7 @@ The handler validates the frontmatter via [TypeBox](https://github.com/sinclairz
 
 ## Scoring
 
-```
+```text
 overall_score = round(coverage_score * 0.6 + infrastructure_score * 0.4)
 ```
 
