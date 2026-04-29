@@ -349,6 +349,15 @@ describe("isCitationEvidence", () => {
     assert.equal(result, false);
     assert.ok(elapsedMs < 50, `evidence guard must be linear-time; took ${elapsedMs}ms`);
   });
+
+  it("enforces the 4 KiB cap in UTF-8 bytes, not UTF-16 code units", () => {
+    // Each 😀 is 4 bytes in UTF-8 but only 2 UTF-16 code units. 1100 emoji =
+    // 4400 bytes (over the cap) but only 2200 .length (under the cap).
+    // A regex citation is appended so the fast-path would otherwise succeed.
+    const evidence = "😀".repeat(1100) + " src/x.ts:1";
+    assert.ok(evidence.length < 4096, "fixture precondition: code-unit count is under the cap");
+    assert.equal(isCitationEvidence(evidence), false);
+  });
 });
 
 // ─── validateFixesAgainstReview ───────────────────────────────────────────────

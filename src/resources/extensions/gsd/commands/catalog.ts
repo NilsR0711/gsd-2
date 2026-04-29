@@ -308,6 +308,14 @@ const NESTED_COMPLETIONS: CompletionMap = {
     { cmd: "clean",  desc: "Remove all merged/empty worktrees" },
     { cmd: "remove", desc: "Remove a worktree (--force to skip safety checks)" },
   ],
+  "eval-review": [
+    { cmd: "--force", desc: "Overwrite an existing EVAL-REVIEW.md" },
+    { cmd: "--show",  desc: "Print the existing EVAL-REVIEW.md and exit" },
+  ],
+  "eval-fix": [
+    { cmd: "--force", desc: "Archive the existing EVAL-FIX.md and rerun" },
+    { cmd: "--show",  desc: "Print the existing EVAL-FIX.md and exit" },
+  ],
 };
 
 function filterOptions(

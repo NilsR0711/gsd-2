@@ -48,6 +48,7 @@ import {
   SEVERITY_VALUES,
   VERDICT_VALUES,
 } from "./eval-review-schema.js";
+import { buildSafeTildeFence } from "./prompt-fences.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -443,8 +444,12 @@ export function buildEvalReviewPrompt(ctx: EvalReviewContext): string {
     ? "\n> ⚠️  Inputs were truncated to fit the prompt size cap. Audit conclusions should account for the elided content; flag the slice as `NEEDS_WORK` or lower if an unreviewed remainder could materially change the verdict.\n"
     : "";
 
+  // Pick fences longer than any contiguous tilde run in either payload so a
+  // malicious artefact cannot terminate its own data block.
+  const specFence = ctx.spec !== null ? buildSafeTildeFence(ctx.spec) : "";
+  const summaryFence = buildSafeTildeFence(ctx.summary);
   const specBody = ctx.spec !== null
-    ? `~~~~markdown\n${ctx.spec}\n~~~~`
+    ? `${specFence}markdown\n${ctx.spec}\n${specFence}`
     : "(not present — audit against best-practice eval dimensions instead of a per-spec gap analysis)";
 
   return `# Eval Review — ${ctx.milestoneId} / ${ctx.sliceId}
@@ -554,9 +559,9 @@ ${specBody}
 
 ### SUMMARY.md
 
-~~~~markdown
+${summaryFence}markdown
 ${ctx.summary}
-~~~~
+${summaryFence}
 
 ---
 

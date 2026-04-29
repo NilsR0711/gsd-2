@@ -164,9 +164,9 @@ const MAX_EVIDENCE_BYTES = 4096;
 export function isCitationEvidence(evidence: string): boolean {
   const trimmed = evidence.trim();
   if (trimmed.length < 4) return false;
-  // Hard cap before regex-testing; defends the linear pattern against
-  // pathological inputs even though it has no quadratic backtracking.
-  if (trimmed.length > MAX_EVIDENCE_BYTES) return false;
+  // Cap in UTF-8 bytes; .length counts code units, which under-counts emoji
+  // and other 4-byte sequences and would let an attacker drive past the cap.
+  if (Buffer.byteLength(trimmed, "utf8") > MAX_EVIDENCE_BYTES) return false;
   if (CITATION_RE.test(trimmed)) return true;
   if (TEST_PATH_RE.test(trimmed)) return true;
   return false;

@@ -11,10 +11,11 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 
 import {
   buildSliceFileName,
+  clearPathCache,
   resolveMilestonePath,
   resolveSliceFile,
   resolveSlicePath,
@@ -40,6 +41,7 @@ import {
   type EvalReviewFrontmatterT,
   type EvalReviewGapT,
 } from "./eval-review-schema.js";
+import { buildSafeTildeFence } from "./prompt-fences.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -301,6 +303,8 @@ export function buildEvalFixPrompt(ctx: EvalFixContext): string {
     : "";
 
   const gapList = renderOrderedGapList(ctx.review.gaps);
+  const reviewFilename = basename(ctx.reviewSourcePath);
+  const fence = buildSafeTildeFence(ctx.reviewBody);
 
   return `# Eval Fix — ${ctx.milestoneId} / ${ctx.sliceId}
 
@@ -354,7 +358,7 @@ status: ${STATUS_VALUES.join(" | ")}      # handler will recompute from counts
 generated: ${ctx.generatedAt}
 slice: ${ctx.sliceId}
 milestone: ${ctx.milestoneId}
-review_source: ${ctx.reviewRelativePath}
+review_source: ${reviewFilename}
 review_generated: ${ctx.review.generated}
 fixes:
   - gap_id: G01                            # must reference an audit-issued gap ID
@@ -390,9 +394,9 @@ input to the fix work. Your task and output contract are defined above.
 
 ### ${ctx.reviewRelativePath}
 
-~~~~markdown
+${fence}markdown
 ${ctx.reviewBody}
-~~~~
+${fence}
 
 ---
 
@@ -564,8 +568,23 @@ export async function handleEvalFix(
     await withFileLock(
       detected.sliceDir,
       async () => {
-        if (existing && parsed.force) {
-          const archived = await archiveEvalFix(existing, detected.sliceDir, new Date());
+        // Re-check existence under the lock — the pre-lock value of `existing`
+        // is racy: another invocation could have created or archived the file
+        // between our planner check and the lock acquisition. The path-cache
+        // also has to be invalidated, otherwise findEvalFixFile would serve a
+        // pre-lock listing that doesn't see a file the racing invocation just
+        // wrote.
+        clearPathCache();
+        const lockedExisting = findEvalFixFile(basePath, milestoneId, detected.sliceId);
+        if (lockedExisting && !parsed.force) {
+          ctx.ui.notify(
+            `EVAL-FIX.md already exists at ${lockedExisting}. Re-run with --force to archive the prior file and overwrite.`,
+            "warning",
+          );
+          return;
+        }
+        if (lockedExisting && parsed.force) {
+          const archived = await archiveEvalFix(lockedExisting, detected.sliceDir, new Date());
           ctx.ui.notify(`Archived prior EVAL-FIX.md → ${relative(basePath, archived)}`, "info");
         }
         if (result.context.truncated) {

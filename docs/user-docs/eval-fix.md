@@ -18,7 +18,7 @@ The command runs as the second half of the eval workflow — `/gsd eval-review` 
 | Argument / Flag | Effect |
 |---|---|
 | `<sliceId>` | Required. Must match `/^S\d+$/` (e.g. `S07`). Path-traversal payloads are rejected before any filesystem access. |
-| `--force` | Archive an existing `<sliceId>-EVAL-FIX.md` into `<sliceDir>/EVAL-FIX.archive/<timestamp>.md` and run a fresh fix. Without this flag, a present file is preserved and the command refuses with a path hint. |
+| `--force` | Archive an existing `<sliceId>-EVAL-FIX.md` into `<sliceDir>/EVAL-FIX.archive/<timestamp>-<hex>.md` and run a fresh fix. The 6-hex suffix prevents same-millisecond collisions. Without this flag, a present file is preserved and the command refuses with a path hint. |
 | `--show` | Print an existing `<sliceId>-EVAL-FIX.md` to the UI and exit; do not run a new fix. |
 
 Examples:
@@ -49,12 +49,12 @@ The handler acquires a per-file lock on the EVAL-FIX.md output path before any w
 
 When you re-run with `--force`, the prior `<sliceId>-EVAL-FIX.md` is moved into a per-slice archive directory rather than deleted:
 
-```
+```text
 .gsd/milestones/M001/slices/S07/
-├── S07-EVAL-FIX.md             ← new (after dispatch completes)
+├── S07-EVAL-FIX.md                          ← new (after dispatch completes)
 └── EVAL-FIX.archive/
-    ├── 2026-04-29T10-15-00-123Z.md  ← prior run
-    └── 2026-04-29T11-30-45-000Z.md  ← run before that
+    ├── 2026-04-29T10-15-00-123Z-a3f5c1.md   ← prior run
+    └── 2026-04-29T11-30-45-000Z-9bd2e8.md   ← run before that
 ```
 
 Two consecutive `--force` runs always produce two distinct files in `EVAL-FIX.archive/`. Nothing in the fix flow ever deletes a prior audit trail.
@@ -70,8 +70,8 @@ status: COMPLETE                       # COMPLETE | PARTIAL | NO_OP — handler 
 generated: 2026-04-29T10:15:00Z        # ISO 8601 UTC
 slice: S07
 milestone: M001-eh88as
-review_source: .gsd/milestones/M001/slices/S07/S07-EVAL-REVIEW.md
-review_generated: 2026-04-28T14:00:00Z # copied from the review's frontmatter so staleness is detectable
+review_source: S07-EVAL-REVIEW.md       # filename only; sibling of EVAL-FIX.md inside the slice dir
+review_generated: 2026-04-28T14:00:00Z   # copied from the review's frontmatter so staleness is detectable
 fixes:
   - gap_id: G01                        # must reference a G## from the audit
     dimension: observability           # observability | guardrails | tests | metrics | datasets | other
