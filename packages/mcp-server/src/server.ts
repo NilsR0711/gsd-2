@@ -394,6 +394,24 @@ interface AskUserQuestionsHandlerDeps {
   tryRemoteQuestions(questions: AskUserQuestion[], signal?: AbortSignal): Promise<RemoteToolResult | null>;
 }
 
+function isLocalElicitFallbackError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const message = err.message.toLowerCase();
+  return (
+    message.includes('timed out after') ||
+    message.includes('elicit') ||
+    message.includes('elicitation') ||
+    message.includes('host') ||
+    message.includes('not supported') ||
+    message.includes('method not found') ||
+    message.includes('-32601')
+  );
+}
+
+function formatErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function askUserQuestionsHandler(
   questions: AskUserQuestion[],
   extra: McpToolExtra | undefined,
@@ -407,18 +425,35 @@ export async function askUserQuestionsHandler(
     // Cursor, etc.) before any configured remote channel. A misconfigured
     // remote (e.g. expired Discord token returning 401) must not block the
     // depth-verification gate when the user is sitting in front of the host.
-    const elicitation = await withElicitTimeout(
-      deps.elicitInput(buildAskUserQuestionsElicitRequest(questions)),
-      'ask_user_questions',
-    );
-    if (elicitation.action === 'accept' && elicitation.content) {
-      return textContent(formatAskUserQuestionsElicitResult(questions, elicitation));
+    let localElicitError: unknown;
+    try {
+      const elicitation = await withElicitTimeout(
+        deps.elicitInput(buildAskUserQuestionsElicitRequest(questions)),
+        'ask_user_questions',
+      );
+      if (elicitation.action === 'accept' && elicitation.content) {
+        return textContent(formatAskUserQuestionsElicitResult(questions, elicitation));
+      }
+    } catch (err) {
+      if (!isLocalElicitFallbackError(err)) throw err;
+      localElicitError = err;
+      console.warn(`[gsd:mcp] ask_user_questions local elicitation unavailable; trying remote fallback: ${formatErrorMessage(err)}`);
     }
 
     // Local cancelled / unavailable — fall back to the configured remote
     // channel (Discord, Slack, Telegram) if one is set.
     if (deps.isRemoteConfigured()) {
-      const remoteResult = await deps.tryRemoteQuestions(questions, extra?.signal);
+      let remoteResult: RemoteToolResult | null;
+      try {
+        remoteResult = await deps.tryRemoteQuestions(questions, extra?.signal);
+      } catch (err) {
+        if (localElicitError) {
+          throw new Error(
+            `Local elicitation failed (${formatErrorMessage(localElicitError)}); remote fallback failed (${formatErrorMessage(err)})`,
+          );
+        }
+        throw err;
+      }
       if (remoteResult) {
         const details = remoteResult.details as Record<string, unknown> | undefined;
         if (details?.['timed_out'] || details?.['error']) {
@@ -427,6 +462,8 @@ export async function askUserQuestionsHandler(
         return textContent(remoteResult.content[0]?.text ?? '');
       }
     }
+
+    if (localElicitError) throw localElicitError;
 
     return textContent('ask_user_questions was cancelled before receiving a response');
   } catch (err) {

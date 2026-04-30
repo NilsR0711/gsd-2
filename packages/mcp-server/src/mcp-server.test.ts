@@ -863,6 +863,68 @@ describe('createMcpServer tool registration', () => {
     assert.equal(remoteCalls, 1);
     assert.equal(result.content[0]?.text, 'remote response');
   });
+
+  it('ask_user_questions falls back to remote when local elicitation is unavailable', async () => {
+    const questions = [
+      {
+        id: 'depth_verification_M001',
+        header: 'Depth Check',
+        question: 'Did I capture the depth right?',
+        options: [
+          { label: 'Yes, you got it (Recommended)', description: 'Continue with the current summary.' },
+          { label: 'Not quite', description: 'I need to clarify the depth further.' },
+        ],
+      },
+    ];
+    let remoteCalls = 0;
+
+    const result = await askUserQuestionsHandler(questions, undefined, {
+      async elicitInput() {
+        throw new Error('MCP host does not support elicitation');
+      },
+      isRemoteConfigured() {
+        return true;
+      },
+      async tryRemoteQuestions(remoteQuestions) {
+        remoteCalls++;
+        assert.equal(remoteQuestions, questions);
+        return { content: [{ type: 'text', text: 'remote response' }] };
+      },
+    });
+
+    assert.equal(remoteCalls, 1);
+    assert.equal(result.content[0]?.text, 'remote response');
+  });
+
+  it('ask_user_questions reports both local and remote errors when both paths fail', async () => {
+    const questions = [
+      {
+        id: 'depth_verification_M001',
+        header: 'Depth Check',
+        question: 'Did I capture the depth right?',
+        options: [
+          { label: 'Yes, you got it (Recommended)', description: 'Continue with the current summary.' },
+          { label: 'Not quite', description: 'I need to clarify the depth further.' },
+        ],
+      },
+    ];
+
+    const result = await askUserQuestionsHandler(questions, undefined, {
+      async elicitInput() {
+        throw new Error('ask_user_questions timed out after 10 minutes');
+      },
+      isRemoteConfigured() {
+        return true;
+      },
+      async tryRemoteQuestions() {
+        throw new Error('remote transport failed');
+      },
+    });
+
+    assert.equal('isError' in result && result.isError, true);
+    assert.match(result.content[0]?.text ?? '', /Local elicitation failed/);
+    assert.match(result.content[0]?.text ?? '', /remote transport failed/);
+  });
 });
 
 // ---------------------------------------------------------------------------
