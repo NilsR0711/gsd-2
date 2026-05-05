@@ -51,7 +51,7 @@ export async function handleGraph(
     try {
       const result = await graphStatus(projectDir);
       if (!result.exists) {
-        notify(ctx, "Graph: not built yet. Run: gsd graph build", "info");
+        notify(ctx, "Graph: not built yet. Run: /gsd graph build", "info");
         return;
       }
       const ageDisplay =
@@ -76,7 +76,7 @@ export async function handleGraph(
   }
 
   if (sub === "query") {
-    const term = tokens[1];
+    const term = tokens.slice(1).join(" ").trim();
     if (!term) {
       notify(ctx, "Usage: /gsd graph query <term>", "warning");
       return;

@@ -78,10 +78,10 @@ describe("/gsd graph — issue #5148: wired into slash dispatcher", () => {
     const last = lastMessage(notifications);
     assert.doesNotMatch(last.message, /Unknown: \/gsd graph/);
     assert.match(last.message, /not built yet/);
-    assert.match(last.message, /gsd graph build/);
+    assert.match(last.message, /\/gsd graph build/);
   });
 
-  test("/gsd graph build creates .gsd/graph.json and reports counts", async () => {
+  test("/gsd graph build creates .gsd/graphs/graph.json and reports counts", async () => {
     const { notifications, ctx } = createMockCtx();
     await handleGSDCommand("graph build", ctx as any, {} as any);
 
@@ -127,6 +127,21 @@ describe("/gsd graph — issue #5148: wired into slash dispatcher", () => {
     assert.match(last.message, /No nodes found|Query results/);
   });
 
+  test("/gsd graph query joins multi-word terms instead of truncating to the first token", async () => {
+    const { notifications, ctx } = createMockCtx();
+    await handleGSDCommand("graph build", ctx as any, {} as any);
+    notifications.length = 0;
+
+    await handleGSDCommand("graph query hello world", ctx as any, {} as any);
+    const last = lastMessage(notifications);
+    assert.doesNotMatch(last.message, /Unknown: \/gsd graph/);
+    assert.match(
+      last.message,
+      /hello world/,
+      "the joined multi-word term must reach the query handler / response",
+    );
+  });
+
   test("/gsd graph diff after build reports a structured diff summary", async () => {
     const { notifications, ctx } = createMockCtx();
     await handleGSDCommand("graph build", ctx as any, {} as any);
@@ -163,16 +178,44 @@ describe("/gsd graph — issue #5148: wired into slash dispatcher", () => {
 });
 
 describe("/gsd graph — catalog & completion wiring", () => {
-  test("graph appears in TOP_LEVEL_SUBCOMMANDS", () => {
+  test("graph appears in TOP_LEVEL_SUBCOMMANDS with the correct artifact path", () => {
     const entry = TOP_LEVEL_SUBCOMMANDS.find((c) => c.cmd === "graph");
     assert.ok(entry, "graph must be present in TOP_LEVEL_SUBCOMMANDS");
     assert.ok(entry!.desc.length > 0, "graph entry needs a description");
+    assert.match(
+      entry!.desc,
+      /\.gsd\/graphs\/graph\.json/,
+      "graph entry must reference the actual artifact path .gsd/graphs/graph.json",
+    );
+  });
+
+  test("graph build completion description references the correct artifact path", () => {
+    const completions = getGsdArgumentCompletions("graph ");
+    const build = completions.find((c) => c.label === "build");
+    assert.ok(build, "build completion must exist");
+    assert.match(
+      build!.description ?? "",
+      /\.gsd\/graphs\/graph\.json/,
+      "build completion must reference .gsd/graphs/graph.json",
+    );
   });
 
   test("GSD_COMMAND_DESCRIPTION includes the graph token", () => {
     assert.ok(
       GSD_COMMAND_DESCRIPTION.includes("|graph"),
       "GSD_COMMAND_DESCRIPTION must list `graph` so /gsd autocompletion surfaces it",
+    );
+  });
+
+  test("/gsd help full references the correct graph artifact path", async () => {
+    const { notifications, ctx } = createMockCtx();
+    await handleGSDCommand("help full", ctx as any, {} as any);
+    const combined = notifications.map((n) => n.message).join("\n");
+    assert.match(combined, /\/gsd graph/);
+    assert.match(
+      combined,
+      /\.gsd\/graphs\/graph\.json/,
+      "full help must reference the actual artifact path .gsd/graphs/graph.json",
     );
   });
 
