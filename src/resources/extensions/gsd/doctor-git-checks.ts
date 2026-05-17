@@ -122,7 +122,8 @@ export async function checkGitHealth(
     issues.push({
       severity: "error",
       code: "corrupt_merge_state",
-      scope: "repo",
+      scope: "project",
+      unitId: "project",
       message: "Failed to evaluate unresolved Git conflicts. Resolve Git/worktree state manually before resuming auto-mode.",
       fixable: false,
     });
