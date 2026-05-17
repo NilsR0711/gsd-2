@@ -85,8 +85,9 @@ function panelLine(content: string, width: number): string {
 export function readModelFromPreferences(): string {
   try {
     const prefs = loadEffectiveGSDPreferences();
-    if (!prefs?.preferences.models) return "default";
-    const m = prefs.preferences.models as Record<string, unknown>;
+    const models = prefs?.preferences?.models;
+    if (!models) return "default";
+    const m = models as Record<string, unknown>;
     // Try common phases in priority order
     for (const phase of ["execution", "planning", "research", "discuss", "subagent"]) {
       const val = m[phase];

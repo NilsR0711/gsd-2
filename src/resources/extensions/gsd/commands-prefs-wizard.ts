@@ -17,6 +17,7 @@ import {
   loadGlobalGSDPreferences,
   loadProjectGSDPreferences,
   loadEffectiveGSDPreferences,
+  normalizePreferencesShape,
   resolveAllSkillReferences,
 } from "./preferences.js";
 import { loadFile, saveFile, splitFrontmatter, parseFrontmatterMap } from "./files.js";
@@ -1571,8 +1572,12 @@ export async function handlePrefsWizard(
   // Order: existing-on-disk values, overlaid with prefill (caller's seeded answers).
   // Callers like /gsd init pass freshly-collected init answers as prefill so the
   // wizard menu shows them populated and writeable in one place.
+  // `normalizePreferencesShape` tolerates a missing preferences file, a malformed
+  // wrapper (`{ preferences: undefined }`), or a bare prefs object so the wizard
+  // never reaches the category menu with a half-formed root. See issue: /gsd setup
+  // prefs crashed with "Cannot read properties of undefined (reading 'models')".
   const prefs: Record<string, unknown> = {
-    ...(existing?.preferences ?? {}),
+    ...normalizePreferencesShape(existing),
     ...(prefill ?? {}),
   };
 
