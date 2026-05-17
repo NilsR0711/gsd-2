@@ -188,13 +188,15 @@ jobs:
               const text = data.content?.[0]?.text ?? '';
 
               // Extract JSON from response (handle markdown code blocks)
-              const jsonMatch = text.match(/\{[\s\S]*\}/);
-              if (!jsonMatch) {
+              const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+              const loose = text.match(/\{[\s\S]*?\}/);
+              const jsonText = fenced?.[1] ?? loose?.[0];
+              if (!jsonText) {
                 core.warning(`Skipping AI triage because the model response was not parseable JSON: ${text}`);
                 return;
               }
 
-              result = JSON.parse(jsonMatch[0]);
+              result = JSON.parse(jsonText);
             } catch (e) {
               core.warning(`Skipping AI triage after unexpected failure: ${e.message}`);
               return;

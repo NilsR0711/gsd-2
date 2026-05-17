@@ -9,6 +9,7 @@ import {
   buildDuplicateComment,
   buildSearchQuery,
   findDuplicateCandidates,
+  hasExistingDedupeCommentInIssue,
   hasExistingDedupeComment,
   scoreTitleSimilarity,
   tokenizeTitle,
@@ -81,4 +82,31 @@ test("buildSearchQuery scopes duplicate search to this repository", () => {
     }),
     "repo:gsd-build/gsd-2 is:issue in:title auto mode fails after merge conflict",
   );
+});
+
+test("hasExistingDedupeCommentInIssue paginates until marker is found", async () => {
+  const calls = [];
+  const githubJson = async (path) => {
+    calls.push(path);
+    if (/[?&]page=1\b/.test(path)) {
+      return Array.from({ length: 100 }, () => ({ body: "ordinary comment" }));
+    }
+    return [{ body: `${DEDUPE_MARKER}\nold` }];
+  };
+
+  const found = await hasExistingDedupeCommentInIssue(githubJson, "gsd-build", "gsd-2", 42);
+  assert.equal(found, true);
+  assert.equal(calls.length, 2);
+});
+
+test("hasExistingDedupeCommentInIssue stops when final page is exhausted", async () => {
+  let calls = 0;
+  const githubJson = async () => {
+    calls += 1;
+    return [{ body: "ordinary comment" }];
+  };
+
+  const found = await hasExistingDedupeCommentInIssue(githubJson, "gsd-build", "gsd-2", 42);
+  assert.equal(found, false);
+  assert.equal(calls, 1);
 });

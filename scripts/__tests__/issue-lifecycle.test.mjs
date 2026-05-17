@@ -10,7 +10,9 @@ import {
   buildNeedsInfoSweepQuery,
   daysAgoIsoDate,
   hasLifecycleComment,
+  listNeedsInfoSweepIssues,
   lifecycleMarker,
+  parseNeedsInfoMaxDays,
 } from "../issue-lifecycle.mjs";
 
 test("buildLifecycleComment returns comments for canonical lifecycle labels", () => {
@@ -47,4 +49,40 @@ test("buildNeedsInfoSweepComment explains the non-destructive stale issue transi
 
   assert.match(comment, new RegExp(lifecycleMarker("needs-info-sweep")));
   assert.match(comment, /moving back to maintainer triage/);
+});
+
+test("parseNeedsInfoMaxDays validates positive integers", () => {
+  assert.equal(parseNeedsInfoMaxDays("14"), 14);
+  assert.throws(
+    () => parseNeedsInfoMaxDays("zero"),
+    /NEEDS_INFO_MAX_DAYS must be a positive integer/,
+  );
+  assert.throws(
+    () => parseNeedsInfoMaxDays("0"),
+    /NEEDS_INFO_MAX_DAYS must be a positive integer/,
+  );
+});
+
+test("listNeedsInfoSweepIssues paginates and excludes pull requests", async () => {
+  const calls = [];
+  const githubJson = async (path) => {
+    calls.push(path);
+    if (/[?&]page=1\b/.test(path)) {
+      return {
+        items: [
+          { number: 1, title: "issue 1" },
+          ...Array.from({ length: 99 }, (_, i) => ({ number: i + 2, title: `issue ${i + 2}` })),
+          { number: 1000, pull_request: {} },
+        ],
+      };
+    }
+    return {
+      items: [{ number: 200, title: "issue 200" }],
+    };
+  };
+
+  const issues = await listNeedsInfoSweepIssues(githubJson, "gsd-build", "gsd-2", 14);
+  assert.equal(issues.some((issue) => issue.pull_request), false);
+  assert.equal(issues.length, 101);
+  assert.equal(calls.length, 2);
 });

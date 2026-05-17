@@ -87,6 +87,17 @@ export function hasExistingDedupeComment(comments) {
   return comments.some((comment) => String(comment.body || "").includes(DEDUPE_MARKER));
 }
 
+export async function hasExistingDedupeCommentInIssue(githubJsonFn, owner, repo, issueNumber) {
+  const perPage = 100;
+  for (let page = 1; ; page += 1) {
+    const comments = await githubJsonFn(
+      `/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=${perPage}&page=${page}`,
+    );
+    if (hasExistingDedupeComment(comments)) return true;
+    if (comments.length < perPage) return false;
+  }
+}
+
 function env(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
@@ -134,8 +145,7 @@ async function run() {
     return;
   }
 
-  const comments = await githubJson(`/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`);
-  if (hasExistingDedupeComment(comments)) {
+  if (await hasExistingDedupeCommentInIssue(githubJson, owner, repo, issueNumber)) {
     console.log("Duplicate suggestion comment already exists.");
     return;
   }

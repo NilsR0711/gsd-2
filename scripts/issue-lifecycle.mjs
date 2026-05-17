@@ -95,6 +95,31 @@ async function listComments(owner, repo, issueNumber) {
   return githubJson(`/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`);
 }
 
+export function parseNeedsInfoMaxDays(rawDays = process.env.NEEDS_INFO_MAX_DAYS || "14") {
+  const days = Number.parseInt(rawDays, 10);
+  if (!Number.isInteger(days) || days <= 0) {
+    throw new Error(`NEEDS_INFO_MAX_DAYS must be a positive integer, got: ${rawDays}`);
+  }
+  return days;
+}
+
+export async function listNeedsInfoSweepIssues(githubJsonFn, owner, repo, days) {
+  const query = buildNeedsInfoSweepQuery(owner, repo, days);
+  const perPage = 100;
+  const issues = [];
+
+  for (let page = 1; ; page += 1) {
+    const search = await githubJsonFn(
+      `/search/issues?q=${encodeURIComponent(query)}&per_page=${perPage}&page=${page}`,
+    );
+    const pageItems = (search.items || []).filter((issue) => !issue.pull_request);
+    issues.push(...pageItems);
+    if (pageItems.length < perPage) break;
+  }
+
+  return issues;
+}
+
 async function postComment(owner, repo, issueNumber, body) {
   return githubJson(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
     method: "POST",
@@ -131,24 +156,26 @@ async function commentOnLabel() {
 
 async function sweepNeedsInfo() {
   const [owner, repo] = env("GITHUB_REPOSITORY").split("/");
-  const days = Number(process.env.NEEDS_INFO_MAX_DAYS || "14");
-  const query = buildNeedsInfoSweepQuery(owner, repo, days);
-  const search = await githubJson(`/search/issues?q=${encodeURIComponent(query)}&per_page=50`);
-  const issues = (search.items || []).filter((issue) => !issue.pull_request);
+  const days = parseNeedsInfoMaxDays();
+  const issues = await listNeedsInfoSweepIssues(githubJson, owner, repo, days);
 
   for (const issue of issues) {
-    const comments = await listComments(owner, repo, issue.number);
-    if (!hasLifecycleComment(comments, "needs-info-sweep")) {
-      await postComment(owner, repo, issue.number, buildNeedsInfoSweepComment(days));
+    try {
+      const comments = await listComments(owner, repo, issue.number);
+      if (!hasLifecycleComment(comments, "needs-info-sweep")) {
+        await postComment(owner, repo, issue.number, buildNeedsInfoSweepComment(days));
+      }
+      await githubJson(`/repos/${owner}/${repo}/issues/${issue.number}/labels/needs-info`, {
+        method: "DELETE",
+      });
+      await githubJson(`/repos/${owner}/${repo}/issues/${issue.number}/labels`, {
+        method: "POST",
+        body: JSON.stringify({ labels: ["needs-triage"] }),
+      });
+      console.log(`Moved #${issue.number} from needs-info to needs-triage.`);
+    } catch (error) {
+      console.error(`Failed to process #${issue.number}: ${error.message}`);
     }
-    await githubJson(`/repos/${owner}/${repo}/issues/${issue.number}/labels/needs-info`, {
-      method: "DELETE",
-    });
-    await githubJson(`/repos/${owner}/${repo}/issues/${issue.number}/labels`, {
-      method: "POST",
-      body: JSON.stringify({ labels: ["needs-triage"] }),
-    });
-    console.log(`Moved #${issue.number} from needs-info to needs-triage.`);
   }
 }
 

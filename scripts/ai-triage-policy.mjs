@@ -43,7 +43,11 @@ const CLASSIFICATION_LABELS = new Set([
 ]);
 
 export function normalizeTriageStatus(rawStatus, labels, violationType) {
-  if (CANONICAL_TRIAGE_LABELS.includes(rawStatus)) return rawStatus;
+  if (typeof rawStatus === "string") {
+    const normalizedStatus = rawStatus.trim().toLowerCase();
+    const canonicalMatch = CANONICAL_TRIAGE_LABELS.find((label) => label === normalizedStatus);
+    if (canonicalMatch) return canonicalMatch;
+  }
   if (labels.includes("needs-info") || violationType === "missing-info") return "needs-info";
   if (violationType === "off-topic") return "wontfix";
   return "needs-triage";

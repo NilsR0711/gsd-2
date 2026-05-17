@@ -16,6 +16,10 @@ test("normalizeTriageStatus accepts canonical triage statuses", () => {
   assert.equal(normalizeTriageStatus("ready-for-human", [], null), "ready-for-human");
 });
 
+test("normalizeTriageStatus normalizes status casing and whitespace", () => {
+  assert.equal(normalizeTriageStatus(" Ready-For-Human ", [], null), "ready-for-human");
+});
+
 test("normalizeTriageStatus falls back to needs-info for missing-info results", () => {
   assert.equal(normalizeTriageStatus(undefined, [], "missing-info"), "needs-info");
 });
