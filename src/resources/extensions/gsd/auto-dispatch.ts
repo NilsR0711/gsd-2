@@ -86,7 +86,7 @@ import {
 import { annotateBackgroundable } from "./delegation-policy.js";
 import { invalidateAllCaches } from "./cache.js";
 import { insertMilestoneValidationGates } from "./milestone-validation-gates.js";
-import { nativeHasChanges, _resetHasChangesCache } from "./native-git-bridge.js";
+import { nativeHasChanges, nativeIsRepo, _resetHasChangesCache } from "./native-git-bridge.js";
 import { debugLog, isDebugEnabled } from "./debug-logger.js";
 import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
 import { listUnmergedGitPaths } from "./git-conflict-state.js";
@@ -163,6 +163,8 @@ export interface DispatchRule {
 }
 
 function commitPendingMilestoneCloseoutChanges(basePath: string, mid: string): DispatchAction | null {
+  if (!nativeIsRepo(basePath)) return null;
+
   const conflictedPaths = listUnmergedGitPaths(basePath);
   if (conflictedPaths === null) {
     return {
